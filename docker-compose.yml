@@ -1,0 +1,34 @@
+services:
+  syncforge:
+    build: .
+    image: syncforge:local
+    # Published on loopback only: the tool holds database credentials.
+    ports:
+      - "127.0.0.1:4000:4000"
+    environment:
+      SYNCFORGE_SECRET_KEY: ${SYNCFORGE_SECRET_KEY:-}
+    volumes:
+      - ./workspace:/workspace
+    extra_hosts:
+      # Lets the container reach databases running on your machine as host.docker.internal.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # Optional demo databases: docker compose --profile sandbox up
+  sandbox-postgres:
+    profiles: ["sandbox"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - ./sandbox/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  sandbox-mongo:
+    profiles: ["sandbox"]
+    image: mongo:7
+    ports:
+      - "127.0.0.1:57017:27017"
+    volumes:
+      - ./sandbox/mongo/init.js:/docker-entrypoint-initdb.d/init.js:ro

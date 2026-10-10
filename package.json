@@ -1,0 +1,18 @@
+{
+  "name": "sync-forge",
+  "author": {
+    "name": "Mohamed Raslan"
+  },
+  "private": true,
+  "license": "MIT",
+  "description": "Local-first tool to build, run and verify data sync jobs between PostgreSQL, MongoDB and Cosmos DB",
+  "scripts": {
+    "setup": "npm ci --prefix engine && npm ci --prefix ui",
+    "dev:engine": "npm run dev --prefix engine",
+    "dev:ui": "npm run dev --prefix ui",
+    "build": "npm run build --prefix ui && npm run build --prefix engine",
+    "test": "npm test --prefix engine",
+    "test:integration": "npm run test:integration --prefix engine",
+    "typecheck": "npm run typecheck --prefix engine && npm run typecheck --prefix ui"
+  }
+}

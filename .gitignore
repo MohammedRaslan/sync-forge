@@ -1,0 +1,29 @@
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Environment files hold secrets; only the example is shared
+.env
+.env.*
+!.env.example
+
+# The workspace holds machine-local state. Commit workspace/jobs/ if you want to share job specs.
+workspace/
+
+# Watermarks of exported job scripts (<job>.state.json): machine-local, like the app's workspace
+*.state.json
+
+# Claude Code
+.claude/
+
+# Test scratch space (integration test for exported scripts)
+engine/.script-test/
+
+# Logs, coverage, OS and editor files
+*.log
+npm-debug.log*
+coverage/
+.DS_Store
+Thumbs.db
+.idea/

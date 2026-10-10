@@ -1,0 +1,219 @@
+import { FormEvent, useState } from 'react';
+import { api } from '../api/client';
+import type { Connection, ConnectionConfig, ConnectionKind, ConnectionTestResult } from '../api/types';
+import { ErrorNotice, Hint } from '../components/Feedback';
+import { FormField } from '../components/FormField';
+import { KIND_LABEL } from '../lib/format';
+
+interface FormState {
+  name: string;
+  kind: ConnectionKind;
+  host: string;
+  port: string;
+  database: string;
+  user: string;
+  password: string;
+  ssl: 'disable' | 'require' | 'verify-full';
+  uri: string;
+  endpoint: string;
+  key: string;
+  allowSelfSignedCert: boolean;
+}
+
+const KINDS: ConnectionKind[] = ['postgres', 'mongo', 'cosmos'];
+
+function text(value: unknown, fallback: string): string {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : fallback;
+}
+
+function initialState(connection?: Connection): FormState {
+  const s = connection?.settings ?? {};
+  return {
+    name: connection?.name ?? '',
+    kind: connection?.kind ?? 'postgres',
+    host: text(s.host, 'localhost'),
+    port: text(s.port, '5432'),
+    database: text(s.database, ''),
+    user: text(s.user, ''),
+    password: '',
+    ssl: (s.ssl as FormState['ssl']) ?? 'disable',
+    uri: '',
+    endpoint: text(s.endpoint, 'https://localhost:8081'),
+    key: '',
+    allowSelfSignedCert: Boolean(s.allowSelfSignedCert),
+  };
+}
+
+function toConfig(state: FormState): ConnectionConfig {
+  switch (state.kind) {
+    case 'postgres':
+      return {
+        kind: 'postgres',
+        host: state.host,
+        port: Number(state.port),
+        database: state.database,
+        user: state.user,
+        password: state.password,
+        ssl: state.ssl,
+      };
+    case 'mongo':
+      return { kind: 'mongo', uri: state.uri, database: state.database };
+    case 'cosmos':
+      return {
+        kind: 'cosmos',
+        endpoint: state.endpoint,
+        key: state.key,
+        database: state.database,
+        allowSelfSignedCert: state.allowSelfSignedCert,
+      };
+  }
+}
+
+export function ConnectionForm({ connection, onSaved }: { connection?: Connection; onSaved: (saved: Connection) => void }) {
+  const [state, setState] = useState(() => initialState(connection));
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<ConnectionTestResult>();
+  const [error, setError] = useState<unknown>();
+
+  const keepsSecret = Boolean(connection?.hasSecret && connection.kind === state.kind);
+  const update = <K extends keyof FormState>(field: K, value: FormState[K]) => {
+    setState((previous) => ({ ...previous, [field]: value }));
+    setTestResult(undefined);
+  };
+
+  const test = async () => {
+    setTesting(true);
+    setError(undefined);
+    try {
+      setTestResult(await api.connections.test(toConfig(state), connection?.id));
+    } catch (caught) {
+      setError(caught);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError(undefined);
+    try {
+      const input = { name: state.name, config: toConfig(state) };
+      onSaved(connection ? await api.connections.update(connection.id, input) : await api.connections.create(input));
+    } catch (caught) {
+      setError(caught);
+      setSaving(false);
+    }
+  };
+
+  const secretHint = keepsSecret ? 'Leave blank to keep the saved value.' : undefined;
+
+  return (
+    <form className="form" onSubmit={save}>
+      <FormField label="Name" hint="How this database appears in jobs, e.g. “Legacy orders (staging)”.">
+        {(props) => <input {...props} value={state.name} onChange={(e) => update('name', e.target.value)} required maxLength={80} />}
+      </FormField>
+
+      <fieldset className="segmented" aria-label="Database type">
+        {KINDS.map((kind) => (
+          <label key={kind} className={state.kind === kind ? 'is-selected' : undefined}>
+            <input type="radio" name="kind" value={kind} checked={state.kind === kind} onChange={() => update('kind', kind)} />
+            {KIND_LABEL[kind]}
+          </label>
+        ))}
+      </fieldset>
+
+      {state.kind === 'postgres' && (
+        <div className="form-grid">
+          <FormField label="Host">
+            {(props) => <input {...props} value={state.host} onChange={(e) => update('host', e.target.value)} required />}
+          </FormField>
+          <FormField label="Port">
+            {(props) => (
+              <input {...props} type="number" min={1} max={65535} value={state.port} onChange={(e) => update('port', e.target.value)} required />
+            )}
+          </FormField>
+          <FormField label="Database">
+            {(props) => <input {...props} value={state.database} onChange={(e) => update('database', e.target.value)} required />}
+          </FormField>
+          <FormField label="User">
+            {(props) => <input {...props} value={state.user} onChange={(e) => update('user', e.target.value)} required autoComplete="off" />}
+          </FormField>
+          <FormField label="Password" hint={secretHint}>
+            {(props) => (
+              <input {...props} type="password" value={state.password} onChange={(e) => update('password', e.target.value)} autoComplete="new-password" />
+            )}
+          </FormField>
+          <FormField label="TLS">
+            {(props) => (
+              <select {...props} value={state.ssl} onChange={(e) => update('ssl', e.target.value as FormState['ssl'])}>
+                <option value="disable">Off</option>
+                <option value="require">Required, any certificate</option>
+                <option value="verify-full">Required, verified certificate</option>
+              </select>
+            )}
+          </FormField>
+        </div>
+      )}
+
+      {state.kind === 'mongo' && (
+        <div className="form-grid">
+          <FormField label="Connection string" wide hint={secretHint ?? 'Stored encrypted. Includes credentials, e.g. mongodb://user:pass@host:27017'}>
+            {(props) => (
+              <input
+                {...props}
+                type="password"
+                value={state.uri}
+                onChange={(e) => update('uri', e.target.value)}
+                placeholder="mongodb://…"
+                required={!keepsSecret}
+                autoComplete="off"
+              />
+            )}
+          </FormField>
+          <FormField label="Database">
+            {(props) => <input {...props} value={state.database} onChange={(e) => update('database', e.target.value)} required />}
+          </FormField>
+        </div>
+      )}
+
+      {state.kind === 'cosmos' && (
+        <div className="form-grid">
+          <FormField label="Endpoint" wide>
+            {(props) => <input {...props} type="url" value={state.endpoint} onChange={(e) => update('endpoint', e.target.value)} required />}
+          </FormField>
+          <FormField label="Key" hint={secretHint}>
+            {(props) => (
+              <input {...props} type="password" value={state.key} onChange={(e) => update('key', e.target.value)} required={!keepsSecret} autoComplete="off" />
+            )}
+          </FormField>
+          <FormField label="Database">
+            {(props) => <input {...props} value={state.database} onChange={(e) => update('database', e.target.value)} required />}
+          </FormField>
+          <label className="checkbox field-wide">
+            <input type="checkbox" checked={state.allowSelfSignedCert} onChange={(e) => update('allowSelfSignedCert', e.target.checked)} />
+            Accept a self-signed certificate (local emulator only)
+          </label>
+        </div>
+      )}
+
+      {testResult &&
+        (testResult.ok ? (
+          <Hint>Connected in {testResult.latencyMs} ms.</Hint>
+        ) : (
+          <ErrorNotice title="Connection failed" error={new Error(testResult.message)} />
+        ))}
+      <ErrorNotice error={error} />
+
+      <div className="form-actions">
+        <button type="button" className="btn" onClick={test} disabled={testing || saving}>
+          {testing ? 'Testing…' : 'Test connection'}
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={saving}>
+          {saving ? 'Saving…' : connection ? 'Save changes' : 'Add connection'}
+        </button>
+      </div>
+    </form>
+  );
+}
