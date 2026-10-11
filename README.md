@@ -178,3 +178,7 @@ Integration tests start PostgreSQL 16, MongoDB 7 and the Cosmos DB emulator in t
 ## Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the engine is built, the guarantees it gives, and how to add a database or a transform.
+
+## License
+
+[MIT](LICENSE) © 2026 Mohamed Raslan

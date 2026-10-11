@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ConnectionView } from '../src/connections/connection.model';
-import { buildJobScript, secretEnvName } from '../src/jobs/job-script';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { STANDALONE_MODULE, buildJobScript, secretEnvName } from '../src/jobs/job-script';
 import { Job } from '../src/jobs/job.model';
 
 function view(id: string, name: string, kind: ConnectionView['kind'], settings: Record<string, unknown>): ConnectionView {
@@ -38,7 +40,7 @@ describe('job script export', () => {
     const { fileName, content } = buildJobScript(job, connections, '2026-10-10');
 
     expect(fileName).toBe('orders-1a2b3c.sync.ts');
-    expect(content).toContain("import { env, optionalEnv, runFromCommandLine, type StandaloneDefinition } from 'syncforge-engine/standalone';");
+    expect(content).toContain("import { env, optionalEnv, runFromCommandLine, type StandaloneDefinition } from 'sync-forge-engine/standalone';");
     expect(content).toContain('password: optionalEnv("LEGACY_PG_PASSWORD"),');
     expect(content).toContain('uri: env("OLD_CRM_URI"),');
     expect(content).toContain('password: optionalEnv("NEW_CORE_PASSWORD"),');
@@ -46,6 +48,11 @@ describe('job script export', () => {
     expect(content).toContain('"customerRef"');
     expect(content).not.toContain('createdAt');
     expect(content).toContain('void runFromCommandLine(definition);');
+  });
+
+  it('imports the runner under the engine package\'s own name', () => {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf8')) as { name: string };
+    expect(STANDALONE_MODULE).toBe(`${pkg.name}/standalone`);
   });
 
   it('keeps environment variable names unique when connections share a name', () => {

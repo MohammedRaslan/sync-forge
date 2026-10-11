@@ -3,6 +3,9 @@ import { Job } from './job.model';
 
 const SECRET_LABEL = { password: 'password', uri: 'connection string', key: 'key' } as const;
 
+/** Must equal the engine package's "name": scripts find the runner through the package's own "exports". */
+export const STANDALONE_MODULE = 'sync-forge-engine/standalone';
+
 /** "Legacy PG" + "password" → "LEGACY_PG_PASSWORD". */
 export function secretEnvName(connectionName: string, field: string): string {
   const base = connectionName.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'CONNECTION';
@@ -64,7 +67,7 @@ ${envLines.join('\n')}
  * Incremental jobs keep their watermark in ${job.id}.state.json in the working directory, separate from the app.
  * Hosts saved for the Docker app (host.docker.internal) may need to be localhost when run on your machine.
  */
-import { ${[...readers, 'runFromCommandLine', 'type StandaloneDefinition'].join(', ')} } from 'syncforge-engine/standalone';
+import { ${[...readers, 'runFromCommandLine', 'type StandaloneDefinition'].join(', ')} } from '${STANDALONE_MODULE}';
 
 const definition: StandaloneDefinition = {
   job: ${literal(spec, 2)},
