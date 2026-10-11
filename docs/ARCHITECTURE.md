@@ -19,6 +19,7 @@ flowchart LR
   MAP --> TR[TransformRegistry]
   CS --> CF[ConnectorFactory]
   CF --> PG[PostgresConnector]
+  CF --> MY[MysqlConnector]
   CF --> MG[MongoConnector]
   CF --> CO[CosmosConnector]
   CS & JS & RS --> FS[(workspace/ JSON files)]
@@ -81,7 +82,7 @@ Dependencies point one way: `sync` → `jobs` → `connections` → `connectors`
 
 **Standalone scripts reuse the pipeline.** `src/standalone.ts` (exported as `sync-forge-engine/standalone`) composes the same `SyncService`, `SyncRunner`, lookups, transforms and `DryRunWriter` without NestJS. `SyncService` depends only on `ConnectionOpener` (`open(id)`), so the app passes `ConnectionsService` and a script passes its own settings, with secrets from environment variables. `jobs/job-script.ts` generates the script; its watermark lives in a local state file instead of the workspace.
 
-**Lookups instead of a join engine.** A lookup reuses `findByKeys`, which every connector already has for reconciliation, so joining across PostgreSQL, MongoDB and Cosmos DB needed no new connector code and no staging database. The cost is that lookups are many-to-one and keyed: arbitrary joins inside one PostgreSQL database go through a SQL query source instead, where the database does the work. Query sources are wrapped as subqueries rather than edited, so watermarks and projections apply without parsing SQL, and they run in a read-only transaction. `ConnectorFactory` is the single place that maps a connection type to a class.
+**Lookups instead of a join engine.** A lookup reuses `findByKeys`, which every connector already has for reconciliation, so joining across PostgreSQL, MySQL, MongoDB and Cosmos DB needed no new connector code and no staging database. The cost is that lookups are many-to-one and keyed: arbitrary joins inside one PostgreSQL or MySQL database go through a SQL query source instead, where the database does the work. Query sources are wrapped as subqueries rather than edited, so watermarks and projections apply without parsing SQL, and they run in a read-only transaction. `ConnectorFactory` is the single place that maps a connection type to a class.
 
 **Strategy registry for transforms.** Each transform is a definition with a `compile(argument)` method that returns a per-row function. Arguments are validated and expressions compiled once per job, not once per row.
 
@@ -115,7 +116,7 @@ All routes are under `/api`. Errors are JSON with a `message` and, for validatio
 | `POST /connections/test` | Test settings before saving. Pass `connectionId` to fall back to a saved secret. |
 | `GET /connections/:id/collections` | Tables, views, collections or containers. |
 | `GET /connections/:id/fields?collection=` | Field list (inferred for document stores). |
-| `POST /connections/:id/query-fields` | Columns a SQL query returns (PostgreSQL only), without reading rows. |
+| `POST /connections/:id/query-fields` | Columns a SQL query returns (PostgreSQL and MySQL), without reading rows. |
 | `GET /transforms` | Available transforms. |
 | `GET /jobs` · `POST /jobs` | List and create jobs. |
 | `GET/PUT/DELETE /jobs/:id` | Read, update, delete (refused while running). |
@@ -136,8 +137,9 @@ All routes are under `/api`. Errors are JSON with a `message` and, for validatio
 
 | File | What it covers |
 | --- | --- |
-| `containers.ts` | Starts PostgreSQL 16, MongoDB 7 (optionally seeded from `sandbox/`) and the Linux "vnext" Cosmos DB emulator with Testcontainers. |
+| `containers.ts` | Starts PostgreSQL 16, MySQL 8.4, MongoDB 7 (optionally seeded from `sandbox/`) and the Linux "vnext" Cosmos DB emulator with Testcontainers. |
 | `connector-contract.ts` | Behaviour every connector must have: ping, listing, describing, counting, batched and limited reads, inclusive watermark reads in order, cancellation, idempotent upserts, key lookups. Each connector's spec runs it. |
+| `mysql.spec.ts` | Matching on key fields only (a clash on another unique column fails instead of updating another row), all-or-nothing batches, composite keys, booleans/JSON/big integers/UTC dates, read-only query sources, a `?` inside a user query left alone, MySQL-to-MySQL incremental job with reconcile. |
 | `postgres.spec.ts` | All-or-nothing batches, splitting above the bind parameter limit, jsonb writes, nested paths read through their column, SQL query sources (reading, counting, watermarks, column types, the read-only guard). |
 | `mongo.spec.ts` | `$set` keeps unmanaged fields, dotted names update nested fields, composite keys, BSON types survive a MongoDB-to-MongoDB copy, ObjectId watermarks. |
 | `cosmos.spec.ts` | Numeric ids, nested partition keys, partition key and id checks, whole-document replacement, system fields stripped. |

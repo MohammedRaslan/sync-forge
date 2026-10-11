@@ -5,7 +5,7 @@
   },
   "private": true,
   "license": "MIT",
-  "description": "Local-first tool to build, run and verify data sync jobs between PostgreSQL, MongoDB and Cosmos DB",
+  "description": "Local-first tool to build, run and verify data sync jobs between PostgreSQL, MySQL, MongoDB and Cosmos DB",
   "scripts": {
     "setup": "npm ci --prefix engine && npm ci --prefix ui",
     "dev:engine": "npm run dev --prefix engine",

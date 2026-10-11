@@ -25,6 +25,17 @@ services:
     volumes:
       - ./sandbox/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
 
+  sandbox-mysql:
+    profiles: ["sandbox"]
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql
+      MYSQL_DATABASE: shop
+    ports:
+      - "127.0.0.1:53306:3306"
+    volumes:
+      - ./sandbox/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
   sandbox-mongo:
     profiles: ["sandbox"]
     image: mongo:7

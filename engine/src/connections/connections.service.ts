@@ -109,7 +109,7 @@ export class ConnectionsService {
   /** Columns of a query source, read without fetching rows. */
   async describeQuery(id: string, query: string): Promise<FieldInfo[]> {
     return this.use(id, (connector) => {
-      if (!connector.describeQuery) throw new ValidationError('Custom SQL queries are only supported for PostgreSQL');
+      if (!connector.describeQuery) throw new ValidationError('Custom SQL queries are only supported for PostgreSQL and MySQL');
       return connector.describeQuery(query);
     });
   }
@@ -174,6 +174,7 @@ export class ConnectionsService {
 function summarize(config: ConnectionConfig): string {
   switch (config.kind) {
     case 'postgres':
+    case 'mysql':
       return `${config.user}@${config.host}:${config.port}/${config.database}`;
     case 'mongo':
       return `${redactMongoUri(config.uri)} / ${config.database}`;

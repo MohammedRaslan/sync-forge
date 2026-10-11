@@ -20,7 +20,10 @@ interface FormState {
   allowSelfSignedCert: boolean;
 }
 
-const KINDS: ConnectionKind[] = ['postgres', 'mongo', 'cosmos'];
+const KINDS: ConnectionKind[] = ['postgres', 'mysql', 'mongo', 'cosmos'];
+
+/** Relational databases share one form: host, port, database, user, password, TLS. */
+const DEFAULT_PORT: Partial<Record<ConnectionKind, string>> = { postgres: '5432', mysql: '3306' };
 
 function text(value: unknown, fallback: string): string {
   return typeof value === 'string' || typeof value === 'number' ? String(value) : fallback;
@@ -32,7 +35,7 @@ function initialState(connection?: Connection): FormState {
     name: connection?.name ?? '',
     kind: connection?.kind ?? 'postgres',
     host: text(s.host, 'localhost'),
-    port: text(s.port, '5432'),
+    port: text(s.port, DEFAULT_PORT[connection?.kind ?? 'postgres'] ?? '5432'),
     database: text(s.database, ''),
     user: text(s.user, ''),
     password: '',
@@ -47,8 +50,9 @@ function initialState(connection?: Connection): FormState {
 function toConfig(state: FormState): ConnectionConfig {
   switch (state.kind) {
     case 'postgres':
+    case 'mysql':
       return {
-        kind: 'postgres',
+        kind: state.kind,
         host: state.host,
         port: Number(state.port),
         database: state.database,
@@ -81,6 +85,13 @@ export function ConnectionForm({ connection, onSaved }: { connection?: Connectio
     setState((previous) => ({ ...previous, [field]: value }));
     setTestResult(undefined);
   };
+
+  // Switching between PostgreSQL and MySQL swaps a default port the user has not changed.
+  const changeKind = (kind: ConnectionKind) =>
+    setState((previous) => {
+      const portIsDefault = Object.values(DEFAULT_PORT).includes(previous.port);
+      return { ...previous, kind, port: portIsDefault ? (DEFAULT_PORT[kind] ?? previous.port) : previous.port };
+    });
 
   const test = async () => {
     setTesting(true);
@@ -118,13 +129,13 @@ export function ConnectionForm({ connection, onSaved }: { connection?: Connectio
       <fieldset className="segmented" aria-label="Database type">
         {KINDS.map((kind) => (
           <label key={kind} className={state.kind === kind ? 'is-selected' : undefined}>
-            <input type="radio" name="kind" value={kind} checked={state.kind === kind} onChange={() => update('kind', kind)} />
+            <input type="radio" name="kind" value={kind} checked={state.kind === kind} onChange={() => changeKind(kind)} />
             {KIND_LABEL[kind]}
           </label>
         ))}
       </fieldset>
 
-      {state.kind === 'postgres' && (
+      {(state.kind === 'postgres' || state.kind === 'mysql') && (
         <div className="form-grid">
           <FormField label="Host">
             {(props) => <input {...props} value={state.host} onChange={(e) => update('host', e.target.value)} required />}

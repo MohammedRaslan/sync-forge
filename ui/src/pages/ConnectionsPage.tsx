@@ -9,7 +9,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useAsync } from '../hooks/useAsync';
 import { ConnectionForm } from './ConnectionForm';
 
-const SECRET_FIELD = { postgres: 'password', mongo: 'uri', cosmos: 'key' } as const;
+const SECRET_FIELD = { postgres: 'password', mysql: 'password', mongo: 'uri', cosmos: 'key' } as const;
 
 type Editing = { mode: 'new' } | { mode: 'edit'; connection: Connection } | undefined;
 

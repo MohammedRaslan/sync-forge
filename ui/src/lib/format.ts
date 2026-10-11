@@ -2,6 +2,7 @@ import type { ConnectionKind, Watermark } from '../api/types';
 
 export const KIND_LABEL: Record<ConnectionKind, string> = {
   postgres: 'PostgreSQL',
+  mysql: 'MySQL',
   mongo: 'MongoDB',
   cosmos: 'Cosmos DB',
 };

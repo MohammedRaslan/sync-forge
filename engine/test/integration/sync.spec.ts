@@ -1,7 +1,7 @@
 import { MongoClient } from 'mongodb';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ConnectionConfig, ConnectionView, MongoConfig, PostgresConfig } from '../../src/connections/connection.model';
+import { ConnectionConfig, ConnectionView, MongoConfig, MysqlConfig, PostgresConfig } from '../../src/connections/connection.model';
 import { ConnectionsService } from '../../src/connections/connections.service';
 import { ConnectorFactory } from '../../src/connectors/connector.factory';
 import { Job } from '../../src/jobs/job.model';
@@ -11,7 +11,7 @@ import { SyncService } from '../../src/sync/sync.service';
 import { DryRunWriter } from '../../src/sync/dry-run-writer';
 import { StoredWatermark } from '../../src/sync/watermark';
 import { TransformRegistry } from '../../src/transforms/transform.registry';
-import { Started, startMongo, startPostgres } from './containers';
+import { Started, startMongo, startMysql, startPostgres } from './containers';
 
 /**
  * Whole jobs on the sandbox seed data: SyncService opens the pipeline, SyncRunner moves the rows,
@@ -20,6 +20,7 @@ import { Started, startMongo, startPostgres } from './containers';
 
 let postgres: Started<PostgresConfig>;
 let mongo: Started<MongoConfig>;
+let mysql: Started<MysqlConfig>;
 let configs: Record<string, ConnectionConfig>;
 let legacy: Pool;
 let newcore: Pool;
@@ -72,12 +73,13 @@ function makeJob(job: Omit<Job, 'id' | 'name' | 'createdAt' | 'updatedAt' | 'bat
 }
 
 beforeAll(async () => {
-  [postgres, mongo] = await Promise.all([startPostgres({ sandbox: true }), startMongo({ sandbox: true })]);
+  [postgres, mongo, mysql] = await Promise.all([startPostgres({ sandbox: true }), startMongo({ sandbox: true }), startMysql({ sandbox: true })]);
   configs = {
     legacy: { ...postgres.config, database: 'legacy' },
     newcore: { ...postgres.config, database: 'newcore' },
     crm: { ...mongo.config, database: 'crm' },
     mongoTarget: { ...mongo.config, database: 'target' },
+    shop: mysql.config,
   };
   legacy = pool(configs.legacy as PostgresConfig);
   newcore = pool(configs.newcore as PostgresConfig);
@@ -87,7 +89,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await Promise.allSettled([legacy?.end(), newcore?.end(), mongoClient?.close()]);
-  await Promise.allSettled([postgres?.stop(), mongo?.stop()]);
+  await Promise.allSettled([postgres?.stop(), mongo?.stop(), mysql?.stop()]);
 });
 
 describe('MongoDB to PostgreSQL (README demo job)', () => {
@@ -312,7 +314,7 @@ describe('PostgreSQL custom SQL source', () => {
 
   it('is rejected for sources that are not PostgreSQL', async () => {
     const mongoQuery = makeJob({ ...job, source: { connectionId: 'crm', collection: 'customers', query: 'SELECT 1' } });
-    await expect(sync.preview(mongoQuery)).rejects.toThrow('Custom SQL queries are only supported for PostgreSQL sources');
+    await expect(sync.preview(mongoQuery)).rejects.toThrow('Custom SQL queries are only supported for PostgreSQL and MySQL sources');
   });
 });
 
@@ -442,5 +444,48 @@ describe('Source preview', () => {
         keyCount: 2,
       },
     ]);
+  });
+});
+
+describe('MySQL sandbox to PostgreSQL (README demo job)', () => {
+  const job = makeJob({
+    mode: 'incremental',
+    watermarkField: 'updated_at',
+    batchSize: 25,
+    source: { connectionId: 'shop', collection: 'products' },
+    target: { connectionId: 'newcore', collection: 'public.products', keyFields: ['sku'] },
+    mappings: [
+      { from: 'sku', to: 'sku', transform: 'none' },
+      { from: 'name', to: 'name', transform: 'none' },
+      { from: 'category', to: 'category', transform: 'expression', argument: 'value.trim().toLowerCase()' },
+      { from: 'price_cents', to: 'price', transform: 'expression', argument: 'value / 100' },
+      { from: 'active', to: 'is_active', transform: 'none' },
+      { from: 'stock', to: 'stock', transform: 'none' },
+      { from: 'attributes.color', to: 'color', transform: 'none' },
+      { from: 'updated_at', to: 'updated_at', transform: 'none' },
+    ],
+  });
+
+  it('loads the shop seed', async () => {
+    const opened = await connectionsStub().open('shop');
+    try {
+      expect(await opened.connector.count('products')).toBe(60);
+      expect(await opened.connector.count('order_lines')).toBe(2400);
+    } finally {
+      await opened.connector.close();
+    }
+  });
+
+  it('copies the products with the README mappings and reconciles clean', async () => {
+    const { stats } = await run(job);
+    expect(stats).toMatchObject({ read: 60, written: 60, skipped: 0 });
+
+    const { rows } = await newcore.query("SELECT * FROM public.products WHERE sku IN ('SKU-0009', 'SKU-0010') ORDER BY sku");
+    expect(rows[0]).toMatchObject({ sku: 'SKU-0009', is_active: false });
+    // SKU-0010 has a padded, capitalised category in the seed.
+    expect(rows[1]).toMatchObject({ category: 'kitchen', price: '15.69', is_active: true, color: 'green', stock: 70 });
+
+    const report = await sync.reconcile(job);
+    expect(report).toMatchObject({ sourceCount: 60, targetCount: 60, matched: 60, missingCount: 0, mismatchedRows: 0 });
   });
 });

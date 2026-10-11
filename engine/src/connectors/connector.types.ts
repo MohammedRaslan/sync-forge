@@ -2,7 +2,7 @@ import { StoredWatermark } from '../sync/watermark';
 
 export type Row = Record<string, unknown>;
 
-export type ConnectorKind = 'postgres' | 'mongo' | 'cosmos';
+export type ConnectorKind = 'postgres' | 'mysql' | 'mongo' | 'cosmos';
 
 export interface CollectionInfo {
   /** Postgres: "schema.table". MongoDB and Cosmos DB: the collection or container name. */

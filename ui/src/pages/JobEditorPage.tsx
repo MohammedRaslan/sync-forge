@@ -31,6 +31,9 @@ const NOT_ORDERABLE = new Set(['object', 'array', 'json', 'jsonb', 'binary', 'nu
 
 const MAX_LOOKUPS = 5;
 
+/** Relational databases: they take SQL query sources, and their columns have plain names. */
+const SQL_KINDS: ReadonlySet<Connection['kind'] | undefined> = new Set(['postgres', 'mysql']);
+
 type PreviewTab = 'mapped' | 'source' | 'query';
 const PREVIEW_TABS: Array<[PreviewTab, string]> = [
   ['mapped', 'Mapped rows'],
@@ -61,6 +64,8 @@ function isUnder(path: string, name: string): boolean {
 
 const TARGET_HINTS = {
   postgres: 'Key columns need a primary key or unique constraint in the target table. Unmapped columns keep their values.',
+  mysql:
+    'Rows are matched on the key fields only. A clash on any other unique column fails the row instead of updating a different one. Unmapped columns keep their values.',
   mongo: 'Documents are matched on the key fields. Only mapped fields are updated; dotted names such as address.city write nested fields.',
   cosmos: 'Map a field to “id” and make it the only key. Writes replace whole documents, so map every field the document needs.',
 } as const;
@@ -77,7 +82,7 @@ function suggestTargetName(sourcePath: string, targetFields: FieldInfo[], target
   const lastSegment = sourcePath.split('.').pop() ?? sourcePath;
   const match = targetFields.find((field) => [sourcePath, lastSegment].some((name) => name.toLowerCase() === field.path.toLowerCase()));
   if (match) return match.path;
-  return targetKind === 'postgres' ? sourcePath.replace(/\./g, '_') : sourcePath;
+  return SQL_KINDS.has(targetKind) ? sourcePath.replace(/\./g, '_') : sourcePath;
 }
 
 export function JobEditorPage() {
@@ -330,7 +335,7 @@ export function JobEditorPage() {
               </select>
             )}
           </FormField>
-          {sourceConnection?.kind === 'postgres' && (
+          {SQL_KINDS.has(sourceConnection?.kind) && (
             <fieldset className="segmented" aria-label="Read from">
               {[false, true].map((query) => (
                 <label key={String(query)} className={isQuerySource === query ? 'is-selected' : undefined}>

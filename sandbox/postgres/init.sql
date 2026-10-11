@@ -1,6 +1,6 @@
 -- Sandbox databases for trying Syncforge locally.
 --   legacy  : the "old system", source of the demo jobs
---   newcore : the "new system", target of the demo jobs
+--   newcore : the "new system", target of the demo jobs (including the MySQL shop's products)
 
 CREATE DATABASE legacy;
 CREATE DATABASE newcore;
@@ -47,4 +47,16 @@ CREATE TABLE public.customers (
   city        text,
   is_active   boolean,
   signed_up   timestamptz
+);
+
+-- Target of the MySQL demo job (shop.products).
+CREATE TABLE public.products (
+  sku         text PRIMARY KEY,
+  name        text,
+  category    text,
+  price       numeric(10, 2),
+  is_active   boolean,
+  stock       integer,
+  color       text,
+  updated_at  timestamptz
 );

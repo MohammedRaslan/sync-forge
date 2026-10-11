@@ -557,6 +557,10 @@ input[type='radio'] {
   background: #7fb2ff;
 }
 
+.kind-mysql::before {
+  background: #f29db4;
+}
+
 .kind-mongo::before {
   background: #86e0a0;
 }

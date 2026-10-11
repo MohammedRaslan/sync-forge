@@ -1,6 +1,6 @@
 /** Shapes returned by the engine API. Kept in sync by hand with engine/src (see docs/ARCHITECTURE.md). */
 
-export type ConnectionKind = 'postgres' | 'mongo' | 'cosmos';
+export type ConnectionKind = 'postgres' | 'mysql' | 'mongo' | 'cosmos';
 
 export interface Connection {
   id: string;
@@ -15,6 +15,7 @@ export interface Connection {
 
 export type ConnectionConfig =
   | { kind: 'postgres'; host: string; port: number; database: string; user: string; password: string; ssl: 'disable' | 'require' | 'verify-full' }
+  | { kind: 'mysql'; host: string; port: number; database: string; user: string; password: string; ssl: 'disable' | 'require' | 'verify-full' }
   | { kind: 'mongo'; uri: string; database: string }
   | { kind: 'cosmos'; endpoint: string; key: string; database: string; allowSelfSignedCert: boolean };
 

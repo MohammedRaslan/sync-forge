@@ -51,7 +51,7 @@ export function CollectionPicker({ connectionId, value, onChange, allowNew = fal
       {value && !exists && !collections.loading && (
         <p className="field-hint">
           {allowNew
-            ? 'Not found on this connection. MongoDB creates it on first write; Postgres tables and Cosmos DB containers must exist.'
+            ? 'Not found on this connection. MongoDB creates it on first write; PostgreSQL and MySQL tables and Cosmos DB containers must exist.'
             : 'Choose a collection from the list.'}
         </p>
       )}

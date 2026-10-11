@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { GenericContainer, StartedTestContainer, Wait } from 'testcontainers';
-import { CosmosConfig, MongoConfig, PostgresConfig } from '../../src/connections/connection.model';
+import { CosmosConfig, MongoConfig, MysqlConfig, PostgresConfig } from '../../src/connections/connection.model';
 
 /** Throwaway databases for integration tests. Each helper returns the connector config and a stop function. */
 
@@ -38,6 +38,36 @@ export async function startPostgres(options: { sandbox?: boolean } = {}): Promis
       database: 'postgres',
       user: 'postgres',
       password: 'postgres',
+      ssl: 'disable',
+    },
+    stop: stopper(container),
+  };
+}
+
+/** MySQL 8.4 with an empty `test` database, or with `sandbox: true` the `shop` demo database from sandbox/mysql. */
+export async function startMysql(options: { sandbox?: boolean } = {}): Promise<Started<MysqlConfig>> {
+  const database = options.sandbox ? 'shop' : 'test';
+  let image = new GenericContainer('mysql:8.4')
+    .withEnvironment({ MYSQL_ROOT_PASSWORD: 'mysql', MYSQL_DATABASE: database })
+    .withExposedPorts(3306);
+  if (options.sandbox) {
+    image = image.withCopyFilesToContainer([
+      { source: resolve(SANDBOX_DIR, 'mysql/init.sql'), target: '/docker-entrypoint-initdb.d/init.sql' },
+    ]);
+  }
+  const container = await image
+    // The entrypoint first starts a temporary server without networking (port: 0), then the real one.
+    .withWaitStrategy(Wait.forLogMessage(/ready for connections.*port: 3306/))
+    .withStartupTimeout(180_000)
+    .start();
+  return {
+    config: {
+      kind: 'mysql',
+      host: container.getHost(),
+      port: container.getMappedPort(3306),
+      database,
+      user: 'root',
+      password: 'mysql',
       ssl: 'disable',
     },
     stop: stopper(container),

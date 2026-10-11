@@ -12,6 +12,16 @@ export const postgresConfigSchema = z.object({
   ssl: z.enum(['disable', 'require', 'verify-full']).default('disable'),
 });
 
+export const mysqlConfigSchema = z.object({
+  kind: z.literal('mysql'),
+  host: requiredText,
+  port: z.coerce.number().int().min(1).max(65535).default(3306),
+  database: requiredText,
+  user: requiredText,
+  password: z.string().default(''),
+  ssl: z.enum(['disable', 'require', 'verify-full']).default('disable'),
+});
+
 export const mongoConfigSchema = z.object({
   kind: z.literal('mongo'),
   uri: z
@@ -32,6 +42,7 @@ export const cosmosConfigSchema = z.object({
 
 export const connectionConfigSchema = z.discriminatedUnion('kind', [
   postgresConfigSchema,
+  mysqlConfigSchema,
   mongoConfigSchema,
   cosmosConfigSchema,
 ]);
@@ -42,6 +53,7 @@ export const connectionInputSchema = z.object({
 });
 
 export type PostgresConfig = z.infer<typeof postgresConfigSchema>;
+export type MysqlConfig = z.infer<typeof mysqlConfigSchema>;
 export type MongoConfig = z.infer<typeof mongoConfigSchema>;
 export type CosmosConfig = z.infer<typeof cosmosConfigSchema>;
 export type ConnectionConfig = z.infer<typeof connectionConfigSchema>;
@@ -54,13 +66,15 @@ export type ConnectionInput = z.infer<typeof connectionInputSchema>;
  */
 export const SECRET_FIELD = {
   postgres: 'password',
+  mysql: 'password',
   mongo: 'uri',
   cosmos: 'key',
 } as const satisfies Record<ConnectionKind, string>;
 
-/** Postgres may legitimately use passwordless (trust) auth; the others cannot work without their secret. */
+/** Postgres and MySQL may legitimately use passwordless auth; the others cannot work without their secret. */
 export const SECRET_REQUIRED: Record<ConnectionKind, boolean> = {
   postgres: false,
+  mysql: false,
   mongo: true,
   cosmos: true,
 };

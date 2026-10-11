@@ -1,6 +1,6 @@
 # Syncforge
 
-Build, run and verify data sync jobs between **PostgreSQL**, **MongoDB** and **Cosmos DB** from a UI, instead of writing another one-off script.
+Build, run and verify data sync jobs between **PostgreSQL**, **MySQL**, **MongoDB** and **Cosmos DB** from a UI, instead of writing another one-off script.
 
 Syncforge runs on your machine. You point it at two databases, pick a table, tick the fields you need, decide how each one lands in the target, and run it. It can then check the result for you: it re-maps a sample of source rows and compares them field by field with what is in the target.
 
@@ -14,7 +14,7 @@ Syncforge turns those scripts into **job specs**: small JSON files that describe
 
 ## What it does
 
-- **Browse schemas** of PostgreSQL tables and views, and of MongoDB and Cosmos DB collections (fields are inferred by sampling documents, including nested paths like `address.city`).
+- **Browse schemas** of PostgreSQL and MySQL tables and views, and of MongoDB and Cosmos DB collections (fields are inferred by sampling documents, including nested paths like `address.city`).
 - **Join related data**: look up values from other tables or collections, in the same database or a different one (an order's customer email from the CRM), or read a PostgreSQL source through your own SQL query.
 - **Map fields** source to target, with transforms: type conversion, trimming, case, fallbacks, fixed values, and JavaScript expressions over the whole row (`row.first_name + ' ' + row.last_name`).
 - **Read only some rows** with conditions such as `created_at > 2025-01-31`; the database applies them, so nothing else is read.
@@ -43,13 +43,14 @@ The app listens on `127.0.0.1` only. To reach a database running on your own mac
 docker compose --profile sandbox up --build
 ```
 
-This also starts a PostgreSQL and a MongoDB with sample data. Add these connections in the UI:
+This also starts a PostgreSQL, a MySQL and a MongoDB with sample data. Add these connections in the UI:
 
 | Name | Type | Settings |
 | --- | --- | --- |
 | Legacy PG | PostgreSQL | host `sandbox-postgres`, port `5432`, database `legacy`, user `postgres`, password `postgres` |
 | New core | PostgreSQL | host `sandbox-postgres`, port `5432`, database `newcore`, user `postgres`, password `postgres` |
 | Old CRM | MongoDB | connection string `mongodb://sandbox-mongo:27017`, database `crm` |
+| Web shop | MySQL | host `sandbox-mysql`, port `3306`, database `shop`, user `root`, password `mysql` |
 
 Then build a job from **Old CRM / customers** to **New core / public.customers**:
 
@@ -64,6 +65,21 @@ Then build a job from **Old CRM / customers** to **New core / public.customers**
 
 Preview it, save it, run it, then press **Compare source and target**.
 
+A MySQL exercise: **Web shop / products** → **New core / public.products**:
+
+| Source field | Transform | Target field |
+| --- | --- | --- |
+| `sku` | Copy as is | `sku` (key) |
+| `name` | Copy as is | `name` |
+| `category` | Expression: `value.trim().toLowerCase()` | `category` |
+| `price_cents` | Expression: `value / 100` | `price` |
+| `active` | Copy as is | `is_active` |
+| `stock` | Copy as is | `stock` |
+| `attributes.color` | Copy as is | `color` |
+| `updated_at` | Copy as is | `updated_at` |
+
+Run it incrementally on `updated_at`. `shop.order_lines` (2 lines per legacy order, keyed on `order_no` + `line_no`) works well with a lookup to `products` on `sku`, or with a SQL query source that joins them.
+
 `legacy.public.orders` → `newcore.public.orders` is a good second exercise for incremental runs: use `updated_at` as the watermark, run once, change a few rows in `legacy`, and run again. Only the changed rows are read.
 
 ## Core ideas
@@ -74,7 +90,7 @@ Preview it, save it, run it, then press **Compare source and target**.
 
 **Lookup.** Brings in one matching row from another table or collection, on any connection, for each source row: a many-to-one join such as order → customer. You say which source field matches which lookup field (several pairs for composite keys) and give the lookup a name, say `customer`. Its fields are then mapped like source fields (`customer.email`), and expressions see `row.customer`. A later lookup can match on an earlier one's fields (order → customer → region). Lookups cost one query per batch, not one per row. A row without a match gets empty lookup fields, or, if you mark the lookup required, counts as a row error.
 
-**SQL query source.** For PostgreSQL sources you can write a `SELECT` instead of picking a table, which covers joins inside one database, aggregates and filters without creating a view. Give it a name; it shows up in place of a table name. The query runs in a read-only transaction. Syncforge wraps it (`SELECT … FROM (your query) AS q`) to apply field selection and the watermark, so leave out `ORDER BY` and `LIMIT`.
+**SQL query source.** For PostgreSQL and MySQL sources you can write a `SELECT` instead of picking a table, which covers joins inside one database, aggregates and filters without creating a view. Give it a name; it shows up in place of a table name. The query runs in a read-only transaction. Syncforge wraps it (`SELECT … FROM (your query) AS q`) to apply field selection and the watermark, so leave out `ORDER BY` and `LIMIT`.
 
 **Key fields.** Every write is an upsert on these fields. For PostgreSQL targets they need a primary key or unique constraint. For Cosmos DB the key is always the document `id`.
 
@@ -101,6 +117,7 @@ Preview it, save it, run it, then press **Compare source and target**.
 | Target | Behaviour |
 | --- | --- |
 | PostgreSQL | `INSERT … ON CONFLICT (keys) DO UPDATE`, one transaction per batch. Unmapped columns keep their values. Objects and arrays are written as JSON (for `json`/`jsonb` columns). |
+| MySQL | In one transaction per batch: look up which keys exist (`SELECT … FOR UPDATE`), `INSERT` the new rows, `UPDATE` the existing ones. Rows are matched on the key fields only: `ON DUPLICATE KEY UPDATE` is not used, because it matches on any unique index and could silently update a different row. A clash on another unique column fails the row, as in PostgreSQL. Unmapped columns keep their values; dates are read and written in UTC, `TINYINT(1)` is read as a boolean, `BIGINT`/`DECIMAL` as exact text. |
 | MongoDB | `updateOne` with `$set` and `upsert`. Only mapped fields change; dotted names such as `address.city` update nested fields. BSON types from a MongoDB source are preserved. |
 | Cosmos DB | `upsert` of the whole document, keyed by `id` within its partition. Map every field the document needs, including the partition key. |
 
@@ -171,9 +188,9 @@ Integration tests start PostgreSQL 16, MongoDB 7 and the Cosmos DB emulator in t
 - **Lookups are many-to-one.** Each source row picks up at most one related row (the first match). Collecting many related rows into an array (customer → orders[]) is not supported yet.
 - **Incremental runs follow the source only.** A change in a looked-up row does not make its source rows count as changed. Reset the watermark (*Start over*) to refresh them.
 - **Conditions compare types strictly in MongoDB and Cosmos DB.** Pick the value type that matches how the field is stored (a number stored as text needs a *text* condition). Conditions on MongoDB `_id` are not supported.
-- **Lookup keys are matched by the lookup database.** PostgreSQL converts types (`'42'` finds `42`); MongoDB and Cosmos DB compare types strictly, so a text key will not find a numeric one. If the types differ, cast the key in a SQL query source (`SELECT order_no::text AS order_ref, …`).
+- **Lookup keys are matched by the lookup database.** PostgreSQL and MySQL convert types (`'42'` finds `42`); MongoDB and Cosmos DB compare types strictly, so a text key will not find a numeric one. If the types differ, cast the key in a SQL query source (`SELECT order_no::text AS order_ref, …`).
 - **Expressions are trusted code.** They run in a separate context with a 50 ms limit per row, which stops mistakes like infinite loops but is not a security sandbox. Anyone who can edit a job can run code on the machine running Syncforge, which is why it is a local, loopback-only tool.
-- **Target tables are not created for you** in PostgreSQL or Cosmos DB. MongoDB creates collections on first write.
+- **Target tables are not created for you** in PostgreSQL, MySQL or Cosmos DB. MongoDB creates collections on first write.
 
 ## Documentation
 
