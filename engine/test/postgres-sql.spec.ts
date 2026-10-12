@@ -58,6 +58,16 @@ describe('postgres sql builders', () => {
     );
   });
 
+  it('keeps the subquery valid when the query ends with a line comment', () => {
+    const query = buildSelect(
+      { query: 'SELECT id, updated_at FROM orders -- only orders' },
+      { watermark: { column: 'updated_at', from: 5 } },
+    );
+    expect(query.text).toBe(
+      'SELECT * FROM (SELECT id, updated_at FROM orders -- only orders\n) AS "q" WHERE "updated_at" >= $1 ORDER BY "updated_at" ASC NULLS LAST',
+    );
+  });
+
   it('counts tables and query sources', () => {
     expect(buildCount(table).text).toBe('SELECT count(*)::bigint AS total FROM "public"."customers"');
     expect(buildCount({ query: 'SELECT 1' }).text).toBe('SELECT count(*)::bigint AS total FROM (SELECT 1) AS "q"');

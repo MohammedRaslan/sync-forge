@@ -47,6 +47,11 @@ describe('mysql sql builders', () => {
     );
   });
 
+  it('keeps the subquery valid when the query ends with a line comment', () => {
+    expect(buildCount({ query: 'SELECT 1 AS n -- one row' })).toBe('SELECT COUNT(*) AS total FROM (SELECT 1 AS n -- one row\n) AS `q`');
+    expect(buildCount({ query: 'SELECT 1 AS n # one row' })).toBe('SELECT COUNT(*) AS total FROM (SELECT 1 AS n # one row\n) AS `q`');
+  });
+
   it('builds prepared key lookups, inserts and updates', () => {
     expect(buildKeyLookup(table, ['id'], [[1], [2]])).toEqual({ sql: 'SELECT * FROM `customers` WHERE `id` IN (?, ?)', values: [1, 2] });
     expect(buildExistingKeys(table, ['a', 'b'], [[1, 2]]).sql).toBe('SELECT `a`, `b` FROM `customers` WHERE (`a`, `b`) IN ((?, ?)) FOR UPDATE');

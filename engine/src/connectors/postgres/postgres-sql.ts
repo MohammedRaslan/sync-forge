@@ -52,9 +52,19 @@ export function normalizeQuery(query: string): string {
   return text;
 }
 
+/**
+ * Wraps a query source as a subquery. A `--` comment on the last line would swallow the
+ * closing parenthesis, so the parenthesis moves to its own line in that case.
+ */
+function wrapQuery(query: string): string {
+  const text = normalizeQuery(query);
+  const lastLine = text.slice(text.lastIndexOf('\n') + 1);
+  return lastLine.includes('--') ? `(${text}\n)` : `(${text})`;
+}
+
 /** `"schema"."table"`, or `(SELECT …) AS "q"` for a query source. */
 function fromClause(source: TableRef | QueryRef): string {
-  return 'query' in source ? `(${normalizeQuery(source.query)}) AS "q"` : qualifiedName(source);
+  return 'query' in source ? `${wrapQuery(source.query)} AS "q"` : qualifiedName(source);
 }
 
 /** "Not equal" also matches empty values, like MongoDB's $ne. */
