@@ -12,6 +12,11 @@ describe('transforms', () => {
     expect(apply('boolean', 'Yes')).toBe(true);
     expect(apply('string', new Date('2024-01-01T00:00:00Z'))).toBe('2024-01-01T00:00:00.000Z');
     expect((apply('date', '2024-01-01') as Date).toISOString()).toBe('2024-01-01T00:00:00.000Z');
+    // Epoch milliseconds as a number, as text (PostgreSQL bigint) and as a bigint.
+    expect((apply('date', 1700000000000) as Date).toISOString()).toBe('2023-11-14T22:13:20.000Z');
+    expect((apply('date', '1700000000000') as Date).toISOString()).toBe('2023-11-14T22:13:20.000Z');
+    expect((apply('date', 1700000000000n) as Date).toISOString()).toBe('2023-11-14T22:13:20.000Z');
+    expect((apply('date', '2024') as Date).toISOString()).toBe('2024-01-01T00:00:00.000Z');
   });
 
   it('passes nulls through', () => {
