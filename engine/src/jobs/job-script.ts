@@ -17,6 +17,11 @@ function literal(value: unknown, indent: number): string {
   return JSON.stringify(value, null, 2).replace(/\n/g, `\n${' '.repeat(indent)}`);
 }
 
+/** Names are free text; a "*\/" inside one would end the header comment early. */
+function inComment(text: string): string {
+  return text.replace(/\*\//g, '*\\/');
+}
+
 /**
  * A runnable `<job>.sync.ts` for a saved job: the spec, every connection it uses without secrets, and a call
  * into the engine's standalone runner. Each secret is read from an environment variable named in the header.
@@ -49,12 +54,12 @@ export function buildJobScript(job: Job, connections: readonly ConnectionView[],
 
   const envLines = secrets.map(
     ({ connection, field, name, reader }) =>
-      ` *   ${name.padEnd(32)} ${SECRET_LABEL[field]} of "${connection.name}"${reader === 'optionalEnv' ? ' (optional)' : ''}`,
+      ` *   ${name.padEnd(32)} ${SECRET_LABEL[field]} of "${inComment(connection.name)}"${reader === 'optionalEnv' ? ' (optional)' : ''}`,
   );
   const readers = [...new Set(secrets.map((secret) => secret.reader))].sort();
 
   const content = `/**
- * Syncforge job "${job.name}" (${job.id}), exported ${exportedOn}.
+ * Syncforge job "${inComment(job.name)}" (${job.id}), exported ${exportedOn}.
  *
  * Runs with the Syncforge engine's own code, exactly like a run in the app. Secrets come from environment variables:
 ${envLines.join('\n')}

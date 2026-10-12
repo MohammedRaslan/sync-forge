@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ConnectionView } from '../src/connections/connection.model';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import ts from 'typescript';
 import { STANDALONE_MODULE, buildJobScript, secretEnvName } from '../src/jobs/job-script';
 import { Job } from '../src/jobs/job.model';
 
@@ -60,5 +61,14 @@ describe('job script export', () => {
     const { content } = buildJobScript({ ...job, source: { connectionId: 'a1', collection: 'x' }, target: { ...job.target, connectionId: 'b2' }, lookups: undefined }, twins, '2026-10-10');
     expect(content).toContain('env("SHARED_URI")');
     expect(content).toContain('env("SHARED_B2_URI")');
+  });
+
+  it('stays valid TypeScript when a job or connection name contains a comment terminator', () => {
+    const named = [view('legacy', 'Legacy */ PG', 'postgres', { kind: 'postgres', host: 'db.local', port: 5432, database: 'legacy', user: 'sync', ssl: 'disable' }), ...connections.slice(1)];
+    const { content } = buildJobScript({ ...job, name: 'nightly */ copy' }, named, '2026-10-10');
+    const { diagnostics } = ts.transpileModule(content, { reportDiagnostics: true });
+    expect(diagnostics?.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+    expect(content).toContain('Syncforge job "nightly *\\/ copy"');
+    expect(content).toContain('name: "Legacy */ PG",');
   });
 });
