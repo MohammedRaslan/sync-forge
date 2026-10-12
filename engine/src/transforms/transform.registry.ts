@@ -64,10 +64,18 @@ function toText(value: unknown): string {
   return String(normalized);
 }
 
-/** Values created inside the vm sandbox belong to another realm; bring dates back as real Dates. */
-function fromSandbox(value: unknown): unknown {
+/**
+ * Values created inside the vm sandbox belong to another realm, so `instanceof Date` fails for them.
+ * Dates come back as real Dates, also inside arrays and plain objects. Other objects, such as BSON
+ * values passed through from the row, are left alone.
+ */
+function fromSandbox(value: unknown, sandboxObject: object): unknown {
   if (Object.prototype.toString.call(value) === '[object Date]') return new Date((value as Date).getTime());
-  return value;
+  if (Array.isArray(value)) return value.map((item) => fromSandbox(item, sandboxObject));
+  if (value === null || typeof value !== 'object') return value;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== null && proto !== Object.prototype && proto !== sandboxObject) return value;
+  return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, fromSandbox(inner, sandboxObject)]));
 }
 
 function compileExpression(source: string | undefined): TransformFn {
@@ -81,10 +89,11 @@ function compileExpression(source: string | undefined): TransformFn {
   // One context per mapping, reused for every row. node:vm isolates globals, not privileges:
   // expressions are trusted input written by the people running this local tool.
   const context = createContext({ value: undefined, row: undefined });
+  const sandboxObject = new Script('Object.prototype').runInContext(context) as object;
   return (value, row) => {
     context.value = value;
     context.row = row;
-    return fromSandbox(script.runInContext(context, { timeout: EXPRESSION_TIMEOUT_MS }));
+    return fromSandbox(script.runInContext(context, { timeout: EXPRESSION_TIMEOUT_MS }), sandboxObject);
   };
 }
 
