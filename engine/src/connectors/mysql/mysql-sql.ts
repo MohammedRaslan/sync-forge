@@ -70,8 +70,18 @@ export function normalizeQuery(query: string): string {
   return text;
 }
 
+/**
+ * Wraps a query source as a subquery. A `--` or `#` comment on the last line would swallow
+ * the closing parenthesis, so the parenthesis moves to its own line in that case.
+ */
+function wrapQuery(query: string): string {
+  const text = normalizeQuery(query);
+  const lastLine = text.slice(text.lastIndexOf('\n') + 1);
+  return /--|#/.test(lastLine) ? `(${text}\n)` : `(${text})`;
+}
+
 function fromClause(source: MysqlTableRef | MysqlQueryRef): string {
-  return 'query' in source ? `(${normalizeQuery(source.query)}) AS \`q\`` : qualifiedName(source);
+  return 'query' in source ? `${wrapQuery(source.query)} AS \`q\`` : qualifiedName(source);
 }
 
 /** "Not equal" also matches empty values (`<=>` is MySQL's null-safe equality), like MongoDB's $ne. */
