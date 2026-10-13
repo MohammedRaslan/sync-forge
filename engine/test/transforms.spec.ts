@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TransformRegistry } from '../src/transforms/transform.registry';
+import { normalizeValue } from '../src/common/values';
 
 const registry = new TransformRegistry();
 const apply = (name: Parameters<TransformRegistry['compile']>[0], value: unknown, argument?: string, row = {}) =>
@@ -35,6 +36,20 @@ describe('transforms', () => {
     expect(apply('expression', 'x', "row.first + ' ' + row.last", { first: 'Ada', last: 'Lovelace' })).toBe('Ada Lovelace');
     const date = apply('expression', 0, 'new Date(value)');
     expect(date).toBeInstanceOf(Date);
+  });
+
+  it('brings dates nested in an expression result back as real Dates', () => {
+    const result = normalizeValue(apply('expression', 0, '({ at: new Date(0), list: [new Date(0)] })')) as { at: unknown; list: unknown[] };
+    expect(result.at).toEqual(new Date(0));
+    expect(result.list[0]).toEqual(new Date(0));
+  });
+
+  it('passes objects from the row through an expression unchanged', () => {
+    class Id {
+      constructor(readonly hex: string) {}
+    }
+    const id = new Id('abc');
+    expect((apply('expression', id, '({ id: value })') as { id: unknown }).id).toBe(id);
   });
 
   it('rejects invalid or runaway expressions', () => {
