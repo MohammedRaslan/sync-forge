@@ -41,6 +41,16 @@ const nullSafe =
   (value) =>
     value === null || value === undefined ? null : convert(value);
 
+/**
+ * Epoch milliseconds often arrive as text: PostgreSQL bigint columns are read as strings.
+ * Twelve or more digits are read as a number, which covers every timestamp after 1973. Shorter text stays
+ * text, so "2024" is still a year and compact dates ("20240131") or epoch seconds fail instead of landing in 1970.
+ */
+function epochOrText(value: unknown): string | number {
+  if (typeof value === 'string' && /^-?\d{12,}$/.test(value.trim())) return Number(value);
+  return value as string | number;
+}
+
 /** "42" → 42, "true" → true, '"x"' → "x", anything that is not JSON stays a string. */
 function parseArgument(argument: string): unknown {
   try {
@@ -148,7 +158,7 @@ const DEFINITIONS: readonly TransformDefinition[] = [
     sourceField: 'required',
     compile: () =>
       nullSafe((value) => {
-        const date = value instanceof Date ? value : new Date(normalizeValue(value) as string | number);
+        const date = value instanceof Date ? value : new Date(epochOrText(normalizeValue(value)));
         if (Number.isNaN(date.getTime())) throw new Error(`"${toText(value)}" is not a valid date`);
         return date;
       }),
