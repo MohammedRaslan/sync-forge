@@ -1,7 +1,7 @@
 import { ConnectionView, SECRET_FIELD, SECRET_REQUIRED } from '../connections/connection.model';
 import { Job } from './job.model';
 
-const SECRET_LABEL = { password: 'password', uri: 'connection string', key: 'key' } as const;
+const SECRET_LABEL = { password: 'password', uri: 'connection string', key: 'key' } as const; // labels only; secret-scan: allow
 
 /** Must equal the engine package's "name": scripts find the runner through the package's own "exports". */
 export const STANDALONE_MODULE = 'sync-forge-engine/standalone';

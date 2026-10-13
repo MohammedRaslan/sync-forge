@@ -192,6 +192,12 @@ Integration tests start PostgreSQL 16, MongoDB 7 and the Cosmos DB emulator in t
 - **Expressions are trusted code.** They run in a separate context with a 50 ms limit per row, which stops mistakes like infinite loops but is not a security sandbox. Anyone who can edit a job can run code on the machine running Syncforge, which is why it is a local, loopback-only tool.
 - **Target tables are not created for you** in PostgreSQL, MySQL or Cosmos DB. MongoDB creates collections on first write.
 
+## Keeping credentials out of git
+
+`npm run setup` turns on a pre-commit hook (`.githooks/pre-commit`) that scans staged changes and stops a commit containing something that looks like a credential: `.env` files, workspace secrets, private keys, cloud and GitHub tokens, connection strings with a password, or passwords written in code. The same check runs on every push and pull request in GitHub Actions (`.github/workflows/secret-scan.yml`), so a commit made with `--no-verify` is still caught. Run it by hand with `npm run check:secrets`.
+
+Known harmless values (documentation placeholders, the public Cosmos DB emulator key, the throwaway demo and test database passwords) are allowed in `scripts/check-secrets.mjs`. Mark any other harmless example line with a `secret-scan: allow` comment.
+
 ## Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the engine is built, the guarantees it gives, and how to add a database or a transform.

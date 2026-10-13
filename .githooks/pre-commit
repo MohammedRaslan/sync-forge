@@ -1,0 +1,3 @@
+#!/bin/sh
+# Blocks commits that contain credentials. Installed by `npm run setup` (git config core.hooksPath .githooks).
+exec node scripts/check-secrets.mjs
