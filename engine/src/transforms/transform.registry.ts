@@ -43,10 +43,11 @@ const nullSafe =
 
 /**
  * Epoch milliseconds often arrive as text: PostgreSQL bigint columns are read as strings.
- * Five or more digits are read as a number; four digits stay text, so "2024" is still a year.
+ * Twelve or more digits are read as a number, which covers every timestamp after 1973. Shorter text stays
+ * text, so "2024" is still a year and compact dates ("20240131") or epoch seconds fail instead of landing in 1970.
  */
 function epochOrText(value: unknown): string | number {
-  if (typeof value === 'string' && /^-?\d{5,}$/.test(value.trim())) return Number(value);
+  if (typeof value === 'string' && /^-?\d{12,}$/.test(value.trim())) return Number(value);
   return value as string | number;
 }
 

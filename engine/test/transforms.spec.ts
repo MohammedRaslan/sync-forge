@@ -27,6 +27,9 @@ describe('transforms', () => {
   it('fails loudly on bad input', () => {
     expect(() => apply('number', 'abc')).toThrow('not a number');
     expect(() => apply('boolean', 'maybe')).toThrow('not a boolean');
+    // Compact dates and epoch seconds as text are not read as milliseconds.
+    expect(() => apply('date', '20240131')).toThrow('not a valid date');
+    expect(() => apply('date', '1700000000')).toThrow('not a valid date');
   });
 
   it('parses constant and default arguments as JSON when possible', () => {
