@@ -137,6 +137,13 @@ export function JobDetailPage() {
           <Link to={`/jobs/${job.id}/edit`} className="btn btn-quiet">
             <Icon name="edit" /> Edit
           </Link>
+          <Link
+            to={`/jobs/new?from=${encodeURIComponent(job.id)}`}
+            className="btn btn-quiet"
+            title="Open the editor with a copy of this job; nothing is saved until you click Save"
+          >
+            <Icon name="copy" /> Duplicate
+          </Link>
           <button
             type="button"
             className="btn btn-quiet"

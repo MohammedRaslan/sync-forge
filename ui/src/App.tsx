@@ -1,14 +1,15 @@
-import { RouterProvider, createHashRouter, useParams } from 'react-router-dom';
+import { RouterProvider, createHashRouter, useParams, useSearchParams } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { ConnectionsPage } from './pages/ConnectionsPage';
 import { JobDetailPage } from './pages/JobDetailPage';
 import { JobEditorPage } from './pages/JobEditorPage';
 import { JobsPage } from './pages/JobsPage';
 
-/** A fresh editor per job, so switching from editing one job to creating another resets the form. */
+/** A fresh editor per job or copy source, so switching from editing one job to creating another resets the form. */
 function EditorRoute() {
   const { id } = useParams();
-  return <JobEditorPage key={id ?? 'new'} />;
+  const [searchParams] = useSearchParams();
+  return <JobEditorPage key={id ?? `new:${searchParams.get('from') ?? ''}`} />;
 }
 
 // Hash routing keeps the engine's static serving trivial: every route is index.html.

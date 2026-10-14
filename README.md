@@ -88,7 +88,7 @@ Run it incrementally on `updated_at`. `shop.order_lines` (2 lines per legacy ord
 
 **Connection.** A saved database. Credentials are encrypted at rest (AES-256-GCM) and never returned by the API. When you edit a connection, leaving the secret blank keeps the saved one.
 
-**Job.** One source collection, one target collection, a list of field mappings, and the key fields used to match rows in the target.
+**Job.** One source collection, one target collection, a list of field mappings, and the key fields used to match rows in the target. *Duplicate* on a job page opens the editor with a copy of that job, named "… (copy)"; nothing is saved until you click *Save*, and the copy starts with no watermark or run history.
 
 **Lookup.** Brings in one matching row from another table or collection, on any connection, for each source row: a many-to-one join such as order → customer. You say which source field matches which lookup field (several pairs for composite keys) and give the lookup a name, say `customer`. Its fields are then mapped like source fields (`customer.email`), and expressions see `row.customer`. A later lookup can match on an earlier one's fields (order → customer → region). Lookups cost one query per batch, not one per row. A row without a match gets empty lookup fields, or, if you mark the lookup required, counts as a row error.
 

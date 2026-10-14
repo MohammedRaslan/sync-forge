@@ -4,6 +4,7 @@ const PATHS = {
   plus: 'M12 5v14M5 12h14',
   play: 'M7 5v14l11-7L7 5Z',
   stop: 'M7 7h10v10H7z',
+  copy: 'M10 8h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Zm-2 8H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2',
   edit: 'M4 20h4L19 9l-4-4L4 16v4Zm9-13 4 4',
   trash: 'M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
   check: 'M5 12l4 4 10-10',

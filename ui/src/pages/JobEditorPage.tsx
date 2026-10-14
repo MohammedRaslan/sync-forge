@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Connection, FieldInfo, FieldMapping, JobInput, Lookup, PreviewResult, SourceFilter, SourcePreview } from '../api/types';
 import { Conduit } from '../components/Conduit';
@@ -58,6 +58,15 @@ function sourcePreviewInput(job: JobInput) {
   return { source, lookups, mode, watermarkField, mappings: job.mappings.filter((mapping) => mapping.to.trim() !== '') };
 }
 
+/** Job names are limited to 80 characters (job.model.ts). */
+const MAX_NAME_LENGTH = 80;
+const COPY_SUFFIX = ' (copy)';
+
+/** Name for a duplicated job: the original name plus " (copy)", shortened so the result stays within the limit. */
+function copyName(name: string): string {
+  return `${name.slice(0, MAX_NAME_LENGTH - COPY_SUFFIX.length)}${COPY_SUFFIX}`;
+}
+
 function isUnder(path: string, name: string): boolean {
   return path === name || path.startsWith(`${name}.`);
 }
@@ -87,6 +96,10 @@ function suggestTargetName(sourcePath: string, targetFields: FieldInfo[], target
 
 export function JobEditorPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  // `/jobs/new?from=<id>` opens a copy of that job; saving creates a new job.
+  const copyOf = id ? undefined : searchParams.get('from') ?? undefined;
+  const loadId = id ?? copyOf;
   const navigate = useNavigate();
   const [draft, setDraft] = useState<JobInput>(EMPTY_JOB);
   const [preview, setPreview] = useState<PreviewState>();
@@ -100,18 +113,18 @@ export function JobEditorPage() {
     const [connections, transforms, job] = await Promise.all([
       api.connections.list(),
       api.transforms.list(),
-      id ? api.jobs.get(id) : Promise.resolve(undefined),
+      loadId ? api.jobs.get(loadId) : Promise.resolve(undefined),
     ]);
     return { connections, transforms, job };
-  }, [id]);
+  }, [loadId]);
 
   useEffect(() => {
     if (setup.data?.job) {
       const { id: _id, createdAt: _created, updatedAt: _updated, ...input } = setup.data.job;
-      setDraft(input);
+      setDraft(copyOf ? { ...input, name: copyName(input.name) } : input);
       setDescribedQuery(input.source.query);
     }
-  }, [setup.data?.job]);
+  }, [setup.data?.job, copyOf]);
 
   const connections = useMemo(() => new Map(setup.data?.connections.map((c) => [c.id, c]) ?? []), [setup.data]);
   const sourceConnection = connections.get(draft.source.connectionId);
@@ -296,8 +309,8 @@ export function JobEditorPage() {
   return (
     <form className="editor" onSubmit={save}>
       <header className="editor-header">
-        <Link to={id ? `/jobs/${id}` : '/'} className="back-link">
-          {id ? 'Back to job' : 'Back to jobs'}
+        <Link to={loadId ? `/jobs/${loadId}` : '/'} className="back-link">
+          {loadId ? 'Back to job' : 'Back to jobs'}
         </Link>
         <input
           className="title-input"
