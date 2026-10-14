@@ -1,7 +1,7 @@
 import { MongoClient } from 'mongodb';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ConnectionConfig, ConnectionView, MongoConfig, MysqlConfig, PostgresConfig } from '../../src/connections/connection.model';
+import { ConnectorConfig, ConnectionView, MongoConfig, MysqlConfig, PostgresConfig } from '../../src/connections/connection.model';
 import { ConnectionsService } from '../../src/connections/connections.service';
 import { ConnectorFactory } from '../../src/connectors/connector.factory';
 import { Job } from '../../src/jobs/job.model';
@@ -21,7 +21,7 @@ import { Started, startMongo, startMysql, startPostgres } from './containers';
 let postgres: Started<PostgresConfig>;
 let mongo: Started<MongoConfig>;
 let mysql: Started<MysqlConfig>;
-let configs: Record<string, ConnectionConfig>;
+let configs: Record<string, ConnectorConfig>;
 let legacy: Pool;
 let newcore: Pool;
 let mongoClient: MongoClient;
@@ -196,7 +196,7 @@ describe('PostgreSQL to MongoDB, incremental', () => {
   it('reads only changed rows on the second run', async () => {
     const first = await run(job);
     expect(first.stats.read).toBe(1200);
-    expect(first.watermark).toEqual({ type: 'date', value: '2025-02-20T00:00:00.000Z' });
+    expect(first.watermark).toEqual({ type: 'date', value: '2025-02-20T00:00:00.000Z', utc: true });
 
     await legacy.query("UPDATE public.orders SET status = 'REFUNDED', updated_at = now() WHERE order_no IN (5, 6, 7)");
 
@@ -207,6 +207,44 @@ describe('PostgreSQL to MongoDB, incremental', () => {
     const orders = mongoClient.db('target').collection('orders');
     expect(await orders.countDocuments()).toBe(1200);
     expect(await orders.findOne({ orderNo: 6 })).toMatchObject({ status: 'REFUNDED', channel: 'web', amount: 48.86 });
+  });
+
+  it('upgrades a watermark saved by an older engine once, even when no row is newer', async () => {
+    const runFrom = async (from: StoredWatermark) => {
+      const checkpoints: Array<StoredWatermark | null> = [];
+      const logs: string[] = [];
+      const result = await sync.withPipeline(job, ({ source, target, mapper, enricher }) =>
+        new SyncRunner().run({
+          job,
+          source,
+          target,
+          mapper,
+          enricher,
+          from,
+          signal: new AbortController().signal,
+          hooks: {
+            log: (_level, message) => logs.push(message),
+            onBatchWritten: async (_stats, checkpoint) => void checkpoints.push(checkpoint),
+            onRowFailed: () => undefined,
+          },
+        }),
+      );
+      return { ...result, checkpoints, logs };
+    };
+    const { rows } = await legacy.query('SELECT max(updated_at) AS latest FROM public.orders');
+    const latest = (rows[0].latest as Date).getTime();
+    const hour = 60 * 60 * 1000;
+
+    const upgraded = await runFrom({ type: 'date', value: new Date(latest + 20 * hour).toISOString() });
+    const movedBack: StoredWatermark = { type: 'date', value: new Date(latest + 6 * hour).toISOString(), utc: true };
+    expect(upgraded.stats.read).toBe(0);
+    expect(upgraded.checkpoints).toEqual([movedBack]);
+    expect(upgraded.logs.some((line) => line.includes('starting 14 h earlier'))).toBe(true);
+
+    const next = await runFrom(movedBack);
+    expect(next.stats.read).toBe(0);
+    expect(next.checkpoints).toEqual([]);
+    expect(next.watermark).toEqual(movedBack);
   });
 
   it('reconciles clean across representations (bigint keys, Dates)', async () => {

@@ -2,12 +2,10 @@ import { StoredWatermark } from '../sync/watermark';
 
 export type Row = Record<string, unknown>;
 
-export type ConnectorKind = 'postgres' | 'mysql' | 'mongo' | 'cosmos';
-
 export interface CollectionInfo {
-  /** Postgres: "schema.table". MongoDB and Cosmos DB: the collection or container name. */
+  /** Postgres: "schema.table". MongoDB and Cosmos DB: the collection or container name. CSV: the file name. */
   name: string;
-  kind: 'table' | 'view' | 'collection' | 'container';
+  kind: 'table' | 'view' | 'collection' | 'container' | 'file';
 }
 
 export interface FieldInfo {

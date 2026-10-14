@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useId, useState } from 'react';
 import { api } from '../api/client';
 import type { Connection, ConnectionConfig, ConnectionKind, ConnectionTestResult } from '../api/types';
 import { ErrorNotice, Hint } from '../components/Feedback';
@@ -18,9 +18,23 @@ interface FormState {
   endpoint: string;
   key: string;
   allowSelfSignedCert: boolean;
+  delimiter: CsvDelimiter;
 }
 
-const KINDS: ConnectionKind[] = ['postgres', 'mysql', 'mongo', 'cosmos'];
+type CsvDelimiter = Extract<ConnectionConfig, { kind: 'csv' }>['delimiter'];
+
+const KINDS: ConnectionKind[] = ['postgres', 'mysql', 'mongo', 'cosmos', 'csv'];
+
+const DELIMITERS: { value: CsvDelimiter; label: string }[] = [
+  { value: 'auto', label: 'Auto-detect' },
+  { value: ',', label: 'Comma' },
+  { value: ';', label: 'Semicolon' },
+  { value: '\t', label: 'Tab' },
+];
+
+function delimiterOf(value: unknown): CsvDelimiter {
+  return DELIMITERS.find((option) => option.value === value)?.value ?? 'auto';
+}
 
 /** Relational databases share one form: host, port, database, user, password, TLS. */
 const DEFAULT_PORT: Partial<Record<ConnectionKind, string>> = { postgres: '5432', mysql: '3306' };
@@ -44,6 +58,7 @@ function initialState(connection?: Connection): FormState {
     endpoint: text(s.endpoint, 'https://localhost:8081'),
     key: '',
     allowSelfSignedCert: Boolean(s.allowSelfSignedCert),
+    delimiter: delimiterOf(s.delimiter),
   };
 }
 
@@ -70,6 +85,8 @@ function toConfig(state: FormState): ConnectionConfig {
         database: state.database,
         allowSelfSignedCert: state.allowSelfSignedCert,
       };
+    case 'csv':
+      return { kind: 'csv', delimiter: state.delimiter };
   }
 }
 
@@ -79,6 +96,7 @@ export function ConnectionForm({ connection, onSaved }: { connection?: Connectio
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionTestResult>();
   const [error, setError] = useState<unknown>();
+  const delimiterLabelId = useId();
 
   const keepsSecret = Boolean(connection?.hasSecret && connection.kind === state.kind);
   const update = <K extends keyof FormState>(field: K, value: FormState[K]) => {
@@ -209,6 +227,29 @@ export function ConnectionForm({ connection, onSaved }: { connection?: Connectio
         </div>
       )}
 
+      {state.kind === 'csv' && (
+        <div className="field">
+          <span className="field-label" id={delimiterLabelId}>
+            Delimiter
+          </span>
+          <fieldset className="segmented" aria-labelledby={delimiterLabelId}>
+            {DELIMITERS.map((option) => (
+              <label key={option.label} className={state.delimiter === option.value ? 'is-selected' : undefined}>
+                <input
+                  type="radio"
+                  name="delimiter"
+                  value={option.value}
+                  checked={state.delimiter === option.value}
+                  onChange={() => update('delimiter', option.value)}
+                />
+                {option.label}
+              </label>
+            ))}
+          </fieldset>
+          <Hint>Upload files after saving the connection.</Hint>
+        </div>
+      )}
+
       {testResult &&
         (testResult.ok ? (
           <Hint>Connected in {testResult.latencyMs} ms.</Hint>
@@ -218,9 +259,11 @@ export function ConnectionForm({ connection, onSaved }: { connection?: Connectio
       <ErrorNotice error={error} />
 
       <div className="form-actions">
-        <button type="button" className="btn" onClick={test} disabled={testing || saving}>
-          {testing ? 'Testing…' : 'Test connection'}
-        </button>
+        {state.kind !== 'csv' && (
+          <button type="button" className="btn" onClick={test} disabled={testing || saving}>
+            {testing ? 'Testing…' : 'Test connection'}
+          </button>
+        )}
         <button type="submit" className="btn btn-primary" disabled={saving}>
           {saving ? 'Saving…' : connection ? 'Save changes' : 'Add connection'}
         </button>

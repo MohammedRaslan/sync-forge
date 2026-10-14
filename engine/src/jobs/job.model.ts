@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { ValidationError } from '../common/errors';
 import { isSafeFieldPath } from '../common/paths';
+import { parseDateText } from '../common/values';
+import { BATCH_SIZE_DEFAULT, BATCH_SIZE_MAX, BATCH_SIZE_MIN } from '../settings/settings.model';
 import { TRANSFORM_DEFINITIONS, TRANSFORM_NAMES } from '../transforms/transform.registry';
 import { StoredWatermark } from '../sync/watermark';
 import { FilterOp, SourceFilter, SourceScope } from '../connectors/connector.types';
@@ -34,10 +36,8 @@ export function parseFilterValue(type: (typeof FILTER_VALUE_TYPES)[number], text
       return Number.isFinite(number) ? number : undefined;
     }
     case 'date': {
-      // A date-time without an offset means UTC, so a spec gives the same result on every machine.
-      const withZone = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(text.trim()) ? `${text.trim()}Z` : text;
-      const date = new Date(withZone);
-      return text.trim() === '' || Number.isNaN(date.getTime()) ? undefined : date;
+      const time = parseDateText(text);
+      return Number.isNaN(time) ? undefined : new Date(time);
     }
     case 'boolean':
       return text === 'true' ? true : text === 'false' ? false : undefined;
@@ -126,7 +126,7 @@ const jobShape = z.object({
   mappings: z.array(fieldMappingSchema).min(1, 'Map at least one field').max(500),
   mode: z.enum(['full', 'incremental']).default('full'),
   watermarkField: fieldPath.optional(),
-  batchSize: z.coerce.number().int().min(1).max(10_000).default(500),
+  batchSize: z.coerce.number().int().min(BATCH_SIZE_MIN).max(BATCH_SIZE_MAX).default(BATCH_SIZE_DEFAULT),
   errorPolicy: z.enum(['fail', 'skip']).default('fail'),
 });
 

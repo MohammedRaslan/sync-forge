@@ -103,7 +103,7 @@ export function describeConnectorContract(name: string, harness: () => ContractH
         await readAll(connector, {
           collection: sourceCollection,
           batchSize: 4,
-          watermark: { field: 'updated_at', from: { type: 'date', value: from } },
+          watermark: { field: 'updated_at', from: { type: 'date', value: from, utc: true } },
         })
       ).flat();
 
@@ -136,7 +136,7 @@ export function describeConnectorContract(name: string, harness: () => ContractH
             { field: 'qty', op: 'lte', value: 12 },
             { field: 'updated_at', op: 'lt', value: new Date(BASE_TIME + 100 * 3_600_000) },
           ],
-          watermark: { field: 'updated_at', from: { type: 'date', value: from } },
+          watermark: { field: 'updated_at', from: { type: 'date', value: from, utc: true } },
         })
       ).flat();
       expect(ids(rows)).toEqual(['r09', 'r10', 'r11', 'r12']);

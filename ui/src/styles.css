@@ -57,6 +57,7 @@
   --kind-mysql: #f29db4;
   --kind-mongo: #86e0a0;
   --kind-cosmos: #f3b46e;
+  --kind-csv: #b8c4d6;
 
   --font-display: 'Chakra Petch', 'Segoe UI', system-ui, sans-serif;
   --font-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -121,6 +122,7 @@
   --kind-mysql: #c2416b;
   --kind-mongo: #2e9a55;
   --kind-cosmos: #b8660f;
+  --kind-csv: #5b6b82;
 
   color-scheme: light;
 }
@@ -482,7 +484,8 @@ input[type='radio'] {
   grid-column: 1 / -1;
 }
 
-.field label,
+.field > label,
+.field-label,
 .picker label {
   color: var(--ink-dim);
   font-size: 0.86rem;
@@ -535,6 +538,11 @@ input[type='radio'] {
   box-shadow: inset 0 0 0 1px var(--seam-strong);
 }
 
+.segmented label:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .segmented label:has(input:focus-visible) {
   outline: 2px solid var(--source);
 }
@@ -575,6 +583,11 @@ input[type='radio'] {
 .hint-warn {
   border-left-color: var(--warn);
   color: var(--warn-ink);
+}
+
+.hint-ok {
+  border-left-color: var(--ok);
+  color: var(--ok);
 }
 
 .loading {
@@ -696,6 +709,10 @@ input[type='radio'] {
 
 .kind-cosmos::before {
   background: var(--kind-cosmos);
+}
+
+.kind-csv::before {
+  background: var(--kind-csv);
 }
 
 .tag {
@@ -983,6 +1000,124 @@ input[type='radio'] {
   gap: 4px;
 }
 
+.csv-files {
+  display: grid;
+  flex: 1 1 100%;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dropzone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 12px;
+  padding: 18px;
+  border: 1px dashed var(--seam-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  color: var(--ink-dim);
+  text-align: center;
+}
+
+/* CSV files are read, so a file held over the zone takes the source colour. */
+.dropzone.is-over {
+  border-color: var(--source-edge-strong);
+  background: var(--source-tint);
+  color: var(--ink);
+}
+
+.upload-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.upload-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 0.9rem;
+}
+
+.upload-name,
+.csv-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-percent {
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.upload-bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--seam);
+}
+
+/* No transition on the width: progress steps are frequent, and motion stays off for reduced-motion users. */
+.upload-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--source);
+}
+
+.upload-message {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.upload-error {
+  color: var(--danger);
+}
+
+.upload-error a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.field-list .csv-file-rows {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.csv-file-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 14px;
+  padding: 4px 4px 4px 8px;
+  border-radius: 6px;
+}
+
+.csv-file-row:hover {
+  background: var(--hull);
+}
+
+.csv-file-name {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.csv-file-meta {
+  color: var(--ink-faint);
+  font-size: 0.86rem;
+}
+
+.csv-file-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
 /* ---------- Drawer ---------- */
 .drawer-backdrop {
   position: fixed;
@@ -1022,6 +1157,28 @@ input[type='radio'] {
   flex: 1;
   overflow-y: auto;
   padding: 22px;
+}
+
+/* ---------- Settings ---------- */
+/* Each section holds a few short inputs; full page width would stretch them for no reason. */
+.settings-form {
+  max-width: 760px;
+}
+
+/* A unit label after a number input, e.g. "MB". */
+.input-with-unit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.input-with-unit > input {
+  min-width: 0;
+}
+
+.input-with-unit > span {
+  color: var(--ink-dim);
+  font-size: 0.9rem;
 }
 
 /* ---------- Job editor ---------- */

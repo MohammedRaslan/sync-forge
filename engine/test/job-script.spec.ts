@@ -3,7 +3,7 @@ import { ConnectionView } from '../src/connections/connection.model';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ts from 'typescript';
-import { STANDALONE_MODULE, buildJobScript, secretEnvName } from '../src/jobs/job-script';
+import { STANDALONE_MODULE, buildJobScript, scriptEnvField, secretEnvName } from '../src/jobs/job-script';
 import { Job } from '../src/jobs/job.model';
 
 function view(id: string, name: string, kind: ConnectionView['kind'], settings: Record<string, unknown>): ConnectionView {
@@ -61,6 +61,27 @@ describe('job script export', () => {
     const { content } = buildJobScript({ ...job, source: { connectionId: 'a1', collection: 'x' }, target: { ...job.target, connectionId: 'b2' }, lookups: undefined }, twins, '2026-10-10');
     expect(content).toContain('env("SHARED_URI")');
     expect(content).toContain('env("SHARED_B2_URI")');
+  });
+
+  it('reads the folder of a CSV connection from the environment and says files keep their uploaded names', () => {
+    expect(scriptEnvField('csv')).toEqual({ field: 'directory', label: 'folder holding the CSV files', required: true });
+    expect(scriptEnvField('postgres')).toEqual({ field: 'password', label: 'password', required: false });
+    const withCsv = [view('uploads', 'Uploads', 'csv', { kind: 'csv', delimiter: ';' }), ...connections.slice(1)];
+    const { content } = buildJobScript({ ...job, source: { connectionId: 'uploads', collection: 'orders.csv' } }, withCsv, '2026-10-10');
+
+    expect(content).toContain('directory: env("UPLOADS_DIRECTORY"),');
+    expect(content).toContain('"delimiter": ";",');
+    expect(content).toMatch(/UPLOADS_DIRECTORY\s+folder holding the CSV files of "Uploads"\n/);
+    expect(content).toContain('CSV files must keep the names they were uploaded with');
+    expect(content).toContain('Secrets and CSV folders come from environment variables:');
+    const { diagnostics } = ts.transpileModule(content, { reportDiagnostics: true });
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('leaves the CSV notes out of scripts for databases only', () => {
+    const { content } = buildJobScript(job, connections, '2026-10-10');
+    expect(content).not.toContain('CSV');
+    expect(content).toContain(' Secrets come from environment variables:');
   });
 
   it('stays valid TypeScript when a job or connection name contains a comment terminator', () => {

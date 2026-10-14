@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { NotFoundError, ValidationError } from '../../src/common/errors';
 import { Row } from '../../src/connectors/connector.types';
 import { PostgresConnector } from '../../src/connectors/postgres/postgres.connector';
+import { StoredWatermark, toStoredWatermark } from '../../src/sync/watermark';
 import { ContractHarness, SEED_ROWS, describeConnectorContract } from './connector-contract';
 import { Started, startPostgres } from './containers';
 import { PostgresConfig } from '../../src/connections/connection.model';
@@ -50,6 +51,47 @@ const harness = (): ContractHarness => ({
 describeConnectorContract('Postgres', harness);
 
 describe('Postgres connector', () => {
+  // The integration tests run in Europe/Athens (vitest.integration.config.ts), where pg's default parsing is off by hours.
+  describe('naive date columns (timestamp without time zone, date) as UTC', () => {
+    beforeAll(async () => {
+      await pool.query('CREATE TABLE public.naive_dates (id int PRIMARY KEY, at timestamp, day date)');
+      await pool.query("INSERT INTO public.naive_dates VALUES (1, '2025-03-01 10:00:00', '2025-03-01'), (2, '2025-03-02 23:30:00', '2025-03-02')");
+    });
+
+    it('reads them as UTC', async () => {
+      const [row] = await connector.findByKeys('public.naive_dates', ['id'], [{ id: 1 }]);
+      expect(row).toEqual({ id: 1, at: new Date('2025-03-01T10:00:00.000Z'), day: new Date('2025-03-01T00:00:00.000Z') });
+    });
+
+    it('writes Dates as their UTC wall time', async () => {
+      await pool.query('CREATE TABLE public.naive_written (id int PRIMARY KEY, at timestamp, day date)');
+      await connector.upsert('public.naive_written', [{ id: 1, at: new Date('2025-03-01T23:30:00Z'), day: new Date('2025-03-01T00:00:00Z') }], ['id']);
+      const { rows } = await pool.query('SELECT at::text AS at, day::text AS day FROM public.naive_written');
+      expect(rows).toEqual([{ at: '2025-03-01 23:30:00', day: '2025-03-01' }]);
+    });
+
+    const readFrom = async (from?: StoredWatermark) => {
+      const rows: Row[] = [];
+      for await (const batch of connector.readBatches({ collection: 'public.naive_dates', batchSize: 10, watermark: { field: 'at', from } })) {
+        rows.push(...batch);
+      }
+      return rows;
+    };
+
+    it('resumes a watermark on a timestamp column at the same moment it was read', async () => {
+      const last = toStoredWatermark((await readFrom()).at(-1)!.at)!;
+      expect(last).toEqual({ type: 'date', value: '2025-03-02T23:30:00.000Z', utc: true });
+      expect((await readFrom(last)).map((row) => row.id)).toEqual([2]);
+      expect(await readFrom({ type: 'date', value: '2025-03-02T23:30:00.001Z', utc: true })).toEqual([]);
+    });
+
+    it('still reads the boundary row from a watermark an older engine saved west of UTC', async () => {
+      // The old engine read naive timestamps as local time: in New York, 23:30 was saved as 04:30 UTC the next day.
+      const saved: StoredWatermark = { type: 'date', value: '2025-03-03T04:30:00.000Z' };
+      expect((await readFrom(saved)).map((row) => row.id)).toEqual([2]);
+    });
+  });
+
   it('writes a batch completely or not at all', async () => {
     const target = await createTable(`target_${++targets}`);
     const rows: Row[] = [
@@ -115,7 +157,7 @@ describe('Postgres connector', () => {
 
     it('applies watermarks and projections to the query result', async () => {
       const from = (SEED_ROWS[9].updated_at as Date).toISOString();
-      const rows = await readQuery({ fields: ['id'], watermark: { field: 'updated_at', from: { type: 'date', value: from } } });
+      const rows = await readQuery({ fields: ['id'], watermark: { field: 'updated_at', from: { type: 'date', value: from, utc: true } } });
       expect(rows.map((row) => row.id)).toEqual(expect.arrayContaining(['r09', 'r20']));
       expect(rows).toHaveLength(12);
       expect(Object.keys(rows[0]).sort()).toEqual(['id', 'updated_at']);

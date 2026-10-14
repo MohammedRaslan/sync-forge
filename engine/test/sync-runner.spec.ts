@@ -115,6 +115,37 @@ describe('SyncRunner', () => {
     expect(watermark).toEqual({ type: 'number', value: 30 });
   });
 
+  describe('a date watermark saved by an older engine', () => {
+    const job = makeJob({ mode: 'incremental', watermarkField: 'updated' });
+    const legacy: StoredWatermark = { type: 'date', value: '2025-03-03T04:30:00.000Z' };
+    const movedBack: StoredWatermark = { type: 'date', value: '2025-03-02T14:30:00.000Z', utc: true };
+
+    it('starts 14 hours earlier, says so once, and saves the moved-back start when no row is read', async () => {
+      const { reader, checkpoints, logs, run } = setup(job, []);
+      const { watermark } = await run(undefined, legacy);
+      expect(reader.requests[0].watermark).toEqual({ field: 'updated', from: movedBack });
+      expect(logs.filter((line) => line.includes('older version'))).toEqual([
+        'Reading rows where updated >= 2025-03-02T14:30:00.000Z (watermark saved by an older version: starting 14 h earlier to be safe)',
+      ]);
+      expect(checkpoints).toEqual([movedBack]);
+      expect(watermark).toEqual(movedBack);
+    });
+
+    it('resumes the saved moved-back start exactly, without shifting it again or saving it again', async () => {
+      const { reader, checkpoints, logs, run } = setup(job, []);
+      await run(undefined, movedBack);
+      expect(reader.requests[0].watermark).toEqual({ field: 'updated', from: movedBack });
+      expect(logs).toContain('Reading rows where updated >= 2025-03-02T14:30:00.000Z');
+      expect(checkpoints).toEqual([]);
+    });
+
+    it('checkpoints the rows it reads as usual', async () => {
+      const { checkpoints, run } = setup(job, [[{ id: 1, qty: 1, updated: new Date('2025-03-02T23:30:00Z') }]]);
+      await run(undefined, legacy);
+      expect(checkpoints).toEqual([{ type: 'date', value: '2025-03-02T23:30:00.000Z', utc: true }]);
+    });
+  });
+
   it('stops when cancelled', async () => {
     const controller = new AbortController();
     controller.abort();

@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { NotFoundError, ValidationError, errorMessage } from './common/errors';
-import { ConnectionConfig, ConnectionView, SECRET_FIELD, SECRET_REQUIRED, connectionConfigSchema } from './connections/connection.model';
+import { ConnectionView, ConnectorConfig, SECRET_FIELD, SECRET_REQUIRED, connectorConfigSchema } from './connections/connection.model';
 import { ConnectorFactory } from './connectors/connector.factory';
 import { Job, JobInput, jobInputSchema } from './jobs/job.model';
 import { DryRunReport, dryRunWriterFor } from './sync/dry-run-writer';
@@ -19,8 +19,11 @@ import { TransformRegistry } from './transforms/transform.registry';
 
 export interface StandaloneConnection {
   name: string;
-  /** Connection settings as in the app, with the secret read from the environment (see `env`). */
-  config: ConnectionConfig;
+  /**
+   * Connection settings as in the app, with the secret read from the environment (see `env`).
+   * CSV connections also name the folder holding their files.
+   */
+  config: ConnectorConfig;
 }
 
 export interface StandaloneDefinition {
@@ -130,9 +133,9 @@ function scriptConnections(connections: Record<string, StandaloneConnection>): C
     async open(id: string) {
       const connection = connections[id];
       if (!connection) throw new NotFoundError(`The script has no connection "${id}"`);
-      const config = connectionConfigSchema.parse(connection.config);
+      const config = connectorConfigSchema.parse(connection.config);
       const secretField = SECRET_FIELD[config.kind];
-      if (SECRET_REQUIRED[config.kind] && !(config as Record<string, unknown>)[secretField]) {
+      if (secretField !== null && SECRET_REQUIRED[config.kind] && !(config as Record<string, unknown>)[secretField]) {
         throw new ValidationError(`Connection "${connection.name}" needs its ${secretField}`);
       }
       const view: ConnectionView = {

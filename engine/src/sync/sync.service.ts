@@ -3,12 +3,13 @@ import { AppError, UpstreamError, ValidationError, errorMessage } from '../commo
 import { getPath } from '../common/paths';
 import { keyString, normalizeRecord, normalizeValue } from '../common/values';
 import { Connector, ReadRequest, Row } from '../connectors/connector.types';
+import { CSV_FULL_MODE_ONLY } from '../connectors/csv/csv-format';
 import { ConnectionView } from '../connections/connection.model';
 import { ConnectionsService } from '../connections/connections.service';
 import { Job, JobInput, Lookup, SourcePreviewInput, sourceScope } from '../jobs/job.model';
 import { TransformRegistry } from '../transforms/transform.registry';
 import { LookupEnricher, OpenLookup, readFields } from './lookup-enricher';
-import { differingFields, displayKey } from './row-diff';
+import { comparisonFor, differingFields, displayKey } from './row-diff';
 import { RecordingKeyReader } from './recording-key-reader';
 import { RowMapper, sourceFieldsOf } from './row-mapper';
 import { RunCancelledError } from './sync-runner';
@@ -214,7 +215,7 @@ export class SyncService {
    * The sample is the first rows in the source's natural order, which keeps the check fast and repeatable.
    */
   async reconcile(job: Job): Promise<ReconcileReport> {
-    return this.withPipeline(job, async ({ source, target, mapper, enricher }) => {
+    return this.withPipeline(job, async ({ source, target, targetConnection, mapper, enricher }) => {
       const [sourceCount, targetCount] = await Promise.all([
         source.count(job.source.collection, sourceScope(job.source)),
         target.count(job.target.collection),
@@ -245,6 +246,7 @@ export class SyncService {
       const actualRows = await target.findByKeys(job.target.collection, keyFields, keys);
       const actualByKey = new Map(actualRows.map((row) => [keyOf(row), row]));
 
+      const equal = comparisonFor(targetConnection.kind);
       const missingKeys: string[] = [];
       const mismatches: FieldMismatch[] = [];
       let matched = 0;
@@ -257,7 +259,7 @@ export class SyncService {
           missingKeys.push(key);
           continue;
         }
-        const differences = differingFields(row, actual, mapper.targetFields).map((field) => ({
+        const differences = differingFields(row, actual, mapper.targetFields, equal).map((field) => ({
             key,
             field,
             expected: normalizeValue(row[field]),
@@ -293,13 +295,14 @@ function asAppError(error: unknown): Error {
 
 /** Relational databases: they take SQL query sources and address columns, not nested paths. */
 const SQL_KINDS = new Set<ConnectionView['kind']>(['postgres', 'mysql']);
-const KIND_NAME: Record<ConnectionView['kind'], string> = { postgres: 'Postgres', mysql: 'MySQL', mongo: 'MongoDB', cosmos: 'Cosmos DB' };
+const KIND_NAME: Record<ConnectionView['kind'], string> = { postgres: 'Postgres', mysql: 'MySQL', mongo: 'MongoDB', cosmos: 'Cosmos DB', csv: 'CSV' };
 
 /** Source rules that depend on the source database. */
 function assertSourceCompatible(job: Pick<JobInput, 'source' | 'mode' | 'watermarkField'>, source: ConnectionView): void {
   if (job.source.query !== undefined && !SQL_KINDS.has(source.kind)) {
     throw new ValidationError('Custom SQL queries are only supported for PostgreSQL and MySQL sources');
   }
+  if (source.kind === 'csv' && job.mode === 'incremental') throw new ValidationError(CSV_FULL_MODE_ONLY);
   if (source.kind === 'mongo' && job.source.filters?.some((filter) => filter.field === '_id')) {
     throw new ValidationError('Conditions on _id are not supported: _id is an ObjectId and would never equal a text value');
   }
@@ -334,6 +337,7 @@ function assertCompatible(
   if (source.id === target.id && job.source.collection === job.target.collection) {
     throw new ValidationError('Source and target are the same collection');
   }
+  if (target.kind === 'csv') throw new ValidationError('CSV connections can be a source or a lookup, not a target, for now');
   if (SQL_KINDS.has(target.kind)) {
     const nested = job.mappings.find((mapping) => mapping.to.includes('.'));
     if (nested) throw new ValidationError(`${KIND_NAME[target.kind]} targets need plain column names, got "${nested.to}"`);

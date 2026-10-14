@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
+import { IncomingMessage } from 'node:http';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query, Req } from '@nestjs/common';
+import { ValidationError } from '../common/errors';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { ConnectionsService } from './connections.service';
@@ -10,6 +12,9 @@ const testRequestSchema = z.object({
 });
 
 const describeQuerySchema = z.object({ query: z.string().trim().min(1, 'Write a query').max(20_000) });
+
+/** Uploads are sent as the raw file. No body parser is registered for text/csv, so the request stream is untouched. */
+const CSV_CONTENT_TYPE = 'text/csv';
 
 const collectionQuerySchema = z.string().trim().min(1, 'collection is required');
 
@@ -67,4 +72,30 @@ export class ConnectionsController {
   queryFields(@Param('id') id: string, @Body(new ZodValidationPipe(describeQuerySchema)) body: z.infer<typeof describeQuerySchema>) {
     return this.connections.describeQuery(id, body.query);
   }
+
+  @Get(':id/files')
+  files(@Param('id') id: string) {
+    return this.connections.listFiles(id);
+  }
+
+  /** Uploads one file as the raw request body, replacing a file of the same name. */
+  @Put(':id/files/:name')
+  saveFile(@Param('id') id: string, @Param('name') name: string, @Req() request: IncomingMessage) {
+    const contentType = request.headers['content-type'] ?? '';
+    if (!contentType.toLowerCase().startsWith(CSV_CONTENT_TYPE)) throw new ValidationError('Upload the file as text/csv');
+    return this.connections.saveFile(id, name, request, declaredLength(request));
+  }
+
+  @Delete(':id/files/:name')
+  @HttpCode(204)
+  removeFile(@Param('id') id: string, @Param('name') name: string) {
+    return this.connections.removeFile(id, name);
+  }
+}
+
+/** The Content-Length header as a number, or undefined when it is missing (chunked uploads) or not a length. */
+function declaredLength(request: IncomingMessage): number | undefined {
+  const header = request.headers['content-length'];
+  if (header === undefined || !/^\d+$/.test(header)) return undefined;
+  return Number(header);
 }

@@ -5,12 +5,27 @@ export const KIND_LABEL: Record<ConnectionKind, string> = {
   mysql: 'MySQL',
   mongo: 'MongoDB',
   cosmos: 'Cosmos DB',
+  csv: 'CSV files',
 };
 
 const numberFormat = new Intl.NumberFormat();
 
 export function formatCount(value: number): string {
   return numberFormat.format(value);
+}
+
+const BYTE_UNITS = ['KB', 'MB', 'GB'];
+
+/** Binary units (1 MB = 1024 KB), matching how the engine applies the upload limit. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${BYTE_UNITS[unit]}`;
 }
 
 export function formatDateTime(iso: string): string {

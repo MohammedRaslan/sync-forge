@@ -1,6 +1,6 @@
 /** Shapes returned by the engine API. Kept in sync by hand with engine/src (see docs/ARCHITECTURE.md). */
 
-export type ConnectionKind = 'postgres' | 'mysql' | 'mongo' | 'cosmos';
+export type ConnectionKind = 'postgres' | 'mysql' | 'mongo' | 'cosmos' | 'csv';
 
 export interface Connection {
   id: string;
@@ -17,18 +17,33 @@ export type ConnectionConfig =
   | { kind: 'postgres'; host: string; port: number; database: string; user: string; password: string; ssl: 'disable' | 'require' | 'verify-full' }
   | { kind: 'mysql'; host: string; port: number; database: string; user: string; password: string; ssl: 'disable' | 'require' | 'verify-full' }
   | { kind: 'mongo'; uri: string; database: string }
-  | { kind: 'cosmos'; endpoint: string; key: string; database: string; allowSelfSignedCert: boolean };
+  | { kind: 'cosmos'; endpoint: string; key: string; database: string; allowSelfSignedCert: boolean }
+  | { kind: 'csv'; delimiter: 'auto' | ',' | ';' | '\t' };
 
 export interface ConnectionInput {
   name: string;
   config: ConnectionConfig;
 }
 
+/** A file uploaded to a CSV connection. */
+export interface CsvFileInfo {
+  name: string;
+  size: number;
+  /** ISO timestamp of the last upload. */
+  modifiedAt: string;
+}
+
+/** The files of a CSV connection and the largest upload accepted now, in bytes. */
+export interface CsvFileList {
+  maxBytes: number;
+  files: CsvFileInfo[];
+}
+
 export type ConnectionTestResult = { ok: true; latencyMs: number } | { ok: false; message: string };
 
 export interface CollectionInfo {
   name: string;
-  kind: 'table' | 'view' | 'collection' | 'container';
+  kind: 'table' | 'view' | 'collection' | 'container' | 'file';
 }
 
 export interface FieldInfo {
@@ -97,6 +112,8 @@ export interface Job extends JobInput {
 export interface Watermark {
   type: 'date' | 'number' | 'string' | 'objectId';
   value: string | number;
+  /** Date watermarks saved since naive timestamps are read as UTC; older ones resume 14 hours earlier once. */
+  utc?: true;
 }
 
 export interface RunStats {
@@ -198,4 +215,16 @@ export interface ReconcileSummary {
   missingCount: number;
   mismatchedRows: number;
   unmappable: number;
+}
+
+/** App-wide, machine-local settings (`GET/PUT /settings`). */
+export interface Settings {
+  defaultBatchSize: number;
+  /** A CSV used as a lookup is held in memory, so this also bounds memory. */
+  csvMaxUploadMb: number;
+}
+
+export interface SettingsView {
+  settings: Settings;
+  defaults: Settings;
 }

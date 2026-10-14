@@ -1,10 +1,10 @@
-import { Pool, PoolClient } from 'pg';
+import { Pool, PoolClient, types } from 'pg';
 import Cursor from 'pg-cursor';
 import { CollectionInfo, Connector, FieldInfo, ReadRequest, Row, SourceFilter, SourceScope } from '../connector.types';
 import { PostgresConfig } from '../../connections/connection.model';
 import { NotFoundError, ValidationError } from '../../common/errors';
 import { chunk } from '../../common/collections';
-import { normalizeValue } from '../../common/values';
+import { normalizeValue, parseDateText } from '../../common/values';
 import { fromStoredWatermark } from '../../sync/watermark';
 import {
   MAX_BIND_PARAMETERS,
@@ -19,12 +19,36 @@ import {
   parseTableName,
 } from './postgres-sql';
 
-/** Values bound as parameters: objects and arrays become JSON text so they land cleanly in json/jsonb columns. */
+/**
+ * Values bound as parameters: objects and arrays become JSON text so they land cleanly in json/jsonb columns.
+ * Dates become UTC ISO text: pg would otherwise send them in the engine's local time zone, and a
+ * `timestamp`/`date` column, which drops the offset, would store a different wall time on every machine.
+ */
 export function toPgParam(value: unknown): unknown {
   const normalized = normalizeValue(value);
-  if (normalized === null || normalized instanceof Date || typeof normalized !== 'object') return normalized;
+  if (normalized instanceof Date) return normalized.toISOString();
+  if (normalized === null || typeof normalized !== 'object') return normalized;
   return JSON.stringify(normalized);
 }
+
+const DATE_OID = 1082;
+const TIMESTAMP_OID = 1114;
+
+/**
+ * A `date` or `timestamp` (without time zone) value as a Date, reading it as UTC like `parseDateText`.
+ * pg reads them in the engine's local time, so the same row would compare differently on every machine.
+ * Values that are not plain dates (infinity, BC) keep pg's own parsing.
+ */
+export function parseNaiveDate(text: string): unknown {
+  const time = parseDateText(text);
+  return Number.isNaN(time) ? types.getTypeParser(TIMESTAMP_OID)(text) : new Date(time);
+}
+
+/** pg's parsers, except naive dates and timestamps; given per pool so other pg users in the process are untouched. */
+const UTC_TYPES = {
+  getTypeParser: (oid: number, format?: 'text' | 'binary') =>
+    (format ?? 'text') === 'text' && (oid === DATE_OID || oid === TIMESTAMP_OID) ? parseNaiveDate : types.getTypeParser(oid, format),
+};
 
 const BEGIN_READ_ONLY = 'BEGIN TRANSACTION READ ONLY';
 
@@ -32,12 +56,8 @@ function sourceOf(collection: string, query: string | undefined): TableRef | Que
   return query === undefined ? parseTableName(collection) : { query };
 }
 
-/**
- * Dates are bound as UTC ISO text: pg would otherwise send them in the engine's local time zone, and a
- * `timestamp`/`date` column would then compare against a different moment on every machine.
- */
 function toPgFilter(filter: SourceFilter): SourceFilter {
-  return { ...filter, value: filter.value instanceof Date ? filter.value.toISOString() : toPgParam(filter.value) };
+  return { ...filter, value: toPgParam(filter.value) };
 }
 
 /** The SELECT behind a key lookup; shared by findByKeys and explainFindByKeys. */
@@ -71,7 +91,7 @@ function selectFor(request: ReadRequest): SqlQuery {
     columns: request.fields?.map((field) => field.split('.')[0]),
     watermark: watermark && {
       column: watermark.field,
-      from: watermark.from ? fromStoredWatermark(watermark.from) : undefined,
+      from: watermark.from ? toPgParam(fromStoredWatermark(watermark.from)) : undefined,
     },
     filters: request.filters?.map(toPgFilter),
   });
@@ -91,6 +111,7 @@ export class PostgresConnector implements Connector {
       max: 4,
       connectionTimeoutMillis: 10_000,
       application_name: 'syncforge',
+      types: UTC_TYPES,
     });
   }
 

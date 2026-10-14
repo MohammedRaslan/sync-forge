@@ -8,8 +8,9 @@ import { KindBadge } from '../components/KindBadge';
 import { PageHeader } from '../components/PageHeader';
 import { useAsync } from '../hooks/useAsync';
 import { ConnectionForm } from './ConnectionForm';
+import { CsvFilesPanel } from './CsvFilesPanel';
 
-const SECRET_FIELD = { postgres: 'password', mysql: 'password', mongo: 'uri', cosmos: 'key' } as const;
+const SECRET_FIELD = { postgres: 'password', mysql: 'password', mongo: 'uri', cosmos: 'key', csv: null } as const;
 
 type Editing = { mode: 'new' } | { mode: 'edit'; connection: Connection } | undefined;
 
@@ -23,7 +24,8 @@ export function ConnectionsPage() {
   const test = async (connection: Connection) => {
     setTests((previous) => ({ ...previous, [connection.id]: 'pending' }));
     // A blank secret tells the engine to use the saved one.
-    const config = { ...connection.settings, [SECRET_FIELD[connection.kind]]: '' } as ConnectionConfig;
+    const secretField = SECRET_FIELD[connection.kind];
+    const config = (secretField ? { ...connection.settings, [secretField]: '' } : connection.settings) as ConnectionConfig;
     try {
       const result = await api.connections.test(config, connection.id);
       setTests((previous) => ({ ...previous, [connection.id]: result }));
@@ -89,9 +91,11 @@ export function ConnectionsPage() {
                 )}
               </div>
               <div className="connection-actions">
-                <button type="button" className="btn btn-quiet" onClick={() => test(connection)} disabled={result === 'pending'}>
-                  <Icon name="plug" /> {result === 'pending' ? 'Testing…' : 'Test'}
-                </button>
+                {connection.kind !== 'csv' && (
+                  <button type="button" className="btn btn-quiet" onClick={() => test(connection)} disabled={result === 'pending'}>
+                    <Icon name="plug" /> {result === 'pending' ? 'Testing…' : 'Test'}
+                  </button>
+                )}
                 <button type="button" className="btn btn-quiet" onClick={() => setEditing({ mode: 'edit', connection })}>
                   <Icon name="edit" /> Edit
                 </button>
@@ -99,6 +103,7 @@ export function ConnectionsPage() {
                   <Icon name="trash" /> Delete
                 </button>
               </div>
+              {connection.kind === 'csv' && <CsvFilesPanel connectionId={connection.id} />}
             </li>
           );
         })}

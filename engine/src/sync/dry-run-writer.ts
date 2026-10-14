@@ -1,9 +1,9 @@
 import { getPath } from '../common/paths';
-import { keyString, normalizeValue } from '../common/values';
+import { keyString, normalizeValue, valuesEqual } from '../common/values';
 import { DataWriter, KeyReader, Row } from '../connectors/connector.types';
 import { findAllByKeys } from './key-lookup';
 import type { Pipeline } from './sync.service';
-import { differingFields, displayKey } from './row-diff';
+import { ValueComparison, comparisonFor, differingFields, displayKey } from './row-diff';
 
 /** How the target would change if the job ran for real. */
 export interface DryRunReport {
@@ -19,6 +19,8 @@ export interface DryRunReport {
 export interface DryRunOptions {
   /** The target replaces whole documents (Cosmos DB), so fields the job does not map would be removed. */
   replacesWholeDocument?: boolean;
+  /** How a field counts as changed; `comparisonFor` the target's kind. Defaults to the SQL comparison. */
+  equal?: ValueComparison;
 }
 
 /** Enough examples to judge a run without making the run record large. */
@@ -58,7 +60,7 @@ export class DryRunWriter implements DataWriter {
         if (this.report.newKeys.length < SAMPLE_LIMIT) this.report.newKeys.push(displayKey(row, keyFields));
         continue;
       }
-      const changed = differingFields(row, current, Object.keys(row));
+      const changed = differingFields(row, current, Object.keys(row), this.options.equal ?? valuesEqual);
       const removed = this.options.replacesWholeDocument ? unmappedFields(row, current) : [];
       if (changed.length === 0 && removed.length === 0) {
         this.report.unchanged += 1;
@@ -92,7 +94,8 @@ function unmappedFields(row: Row, current: Row): string[] {
   return Object.keys(current).filter((field) => !written.has(field));
 }
 
-/** The dry-run writer for a pipeline's target; Cosmos DB targets replace whole documents. */
+/** The dry-run writer for a pipeline's target: compared as its kind stores values; Cosmos DB replaces whole documents. */
 export function dryRunWriterFor(pipeline: Pick<Pipeline, 'target' | 'targetConnection'>): DryRunWriter {
-  return new DryRunWriter(pipeline.target, { replacesWholeDocument: pipeline.targetConnection.kind === 'cosmos' });
+  const { kind } = pipeline.targetConnection;
+  return new DryRunWriter(pipeline.target, { replacesWholeDocument: kind === 'cosmos', equal: comparisonFor(kind) });
 }

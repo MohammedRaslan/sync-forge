@@ -4,6 +4,8 @@ import type {
   ConnectionConfig,
   ConnectionInput,
   ConnectionTestResult,
+  CsvFileInfo,
+  CsvFileList,
   FieldInfo,
   Job,
   JobInput,
@@ -13,6 +15,8 @@ import type {
   SourcePreview,
   RunRecord,
   RunSummary,
+  Settings,
+  SettingsView,
   TransformInfo,
   Watermark,
 } from './types';
@@ -33,6 +37,19 @@ export class ApiError extends Error {
   }
 }
 
+const ENGINE_UNREACHABLE = 'The Syncforge engine is not reachable. Is it running?';
+
+/** The engine's body for a refused request. */
+interface ErrorPayload {
+  message?: string;
+  issues?: ApiIssue[];
+}
+
+/** The error for a non-2xx response, from the engine's body when there is one. */
+function errorFor(status: number, payload: ErrorPayload): ApiError {
+  return new ApiError(payload.message ?? `Request failed with status ${status}`, status, payload.issues);
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let response: Response;
   try {
@@ -42,15 +59,42 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError('The Syncforge engine is not reachable. Is it running?', 0);
+    throw new ApiError(ENGINE_UNREACHABLE, 0);
   }
   if (response.status === 204) return undefined as T;
 
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new ApiError(payload.message ?? `Request failed with status ${response.status}`, response.status, payload.issues);
-  }
+  if (!response.ok) throw errorFor(response.status, payload);
   return payload as T;
+}
+
+/**
+ * Sends a file as the raw request body. XMLHttpRequest rather than fetch, because only XHR reports upload progress.
+ * The type is always text/csv: Windows labels CSV files application/vnd.ms-excel, which the engine refuses.
+ */
+function uploadCsv(path: string, file: File, onProgress?: (fraction: number) => void): Promise<CsvFileInfo> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', `/api${path}`);
+    xhr.setRequestHeader('Content-Type', 'text/csv');
+    if (onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) onProgress(event.loaded / event.total);
+      };
+    }
+    xhr.onerror = () => reject(new ApiError(ENGINE_UNREACHABLE, 0));
+    xhr.onload = () => {
+      let payload: unknown = {};
+      try {
+        payload = JSON.parse(xhr.responseText);
+      } catch {
+        // A body that is not JSON leaves the generic message below.
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(payload as CsvFileInfo);
+      else reject(errorFor(xhr.status, payload as ErrorPayload));
+    };
+    xhr.send(file);
+  });
 }
 
 const enc = encodeURIComponent;
@@ -67,6 +111,10 @@ export const api = {
     fields: (id: string, collection: string) =>
       request<FieldInfo[]>('GET', `/connections/${enc(id)}/fields?collection=${enc(collection)}`),
     queryFields: (id: string, query: string) => request<FieldInfo[]>('POST', `/connections/${enc(id)}/query-fields`, { query }),
+    files: (id: string) => request<CsvFileList>('GET', `/connections/${enc(id)}/files`),
+    uploadFile: (id: string, file: File, name: string, onProgress?: (fraction: number) => void) =>
+      uploadCsv(`/connections/${enc(id)}/files/${enc(name)}`, file, onProgress),
+    removeFile: (id: string, name: string) => request<void>('DELETE', `/connections/${enc(id)}/files/${enc(name)}`),
   },
   jobs: {
     list: () => request<Job[]>('GET', '/jobs'),
@@ -94,5 +142,11 @@ export const api = {
   },
   transforms: {
     list: () => request<TransformInfo[]>('GET', '/transforms'),
+  },
+  settings: {
+    get: () => request<SettingsView>('GET', '/settings'),
+    update: (settings: Settings) => request<SettingsView>('PUT', '/settings', settings),
+    /** Saves the defaults. The engine fills every omitted field with its default, so the UI keeps no copy of them. */
+    reset: () => request<SettingsView>('PUT', '/settings', {}),
   },
 };

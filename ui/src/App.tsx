@@ -4,6 +4,7 @@ import { ConnectionsPage } from './pages/ConnectionsPage';
 import { JobDetailPage } from './pages/JobDetailPage';
 import { JobEditorPage } from './pages/JobEditorPage';
 import { JobsPage } from './pages/JobsPage';
+import { SettingsPage } from './pages/SettingsPage';
 
 /** A fresh editor per job or copy source, so switching from editing one job to creating another resets the form. */
 function EditorRoute() {
@@ -22,6 +23,7 @@ const router = createHashRouter([
       { path: '/jobs/:id', element: <JobDetailPage /> },
       { path: '/jobs/:id/edit', element: <EditorRoute /> },
       { path: '/connections', element: <ConnectionsPage /> },
+      { path: '/settings', element: <SettingsPage /> },
     ],
   },
 ]);

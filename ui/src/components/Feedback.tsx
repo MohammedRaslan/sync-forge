@@ -24,7 +24,7 @@ export function ErrorNotice({ error, title }: { error: unknown; title?: string }
   );
 }
 
-export function Hint({ children, tone = 'info' }: { children: ReactNode; tone?: 'info' | 'warn' }) {
+export function Hint({ children, tone = 'info' }: { children: ReactNode; tone?: 'info' | 'warn' | 'ok' }) {
   return <p className={`hint hint-${tone}`}>{children}</p>;
 }
 

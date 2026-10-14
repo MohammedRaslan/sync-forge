@@ -7,7 +7,7 @@ import { Job, sourceScope } from '../jobs/job.model';
 import { LookupEnricher } from './lookup-enricher';
 import { displayKey } from './row-diff';
 import { RowMapper } from './row-mapper';
-import { StoredWatermark, toStoredWatermark } from './watermark';
+import { LEGACY_DATE_WATERMARK_SHIFT_HOURS, StoredWatermark, toStoredWatermark, upgradedWatermark } from './watermark';
 
 export interface RunStats {
   read: number;
@@ -32,7 +32,10 @@ export interface RowFailure {
 
 export interface RunHooks {
   log(level: LogLevel, message: string): void;
-  /** Called after every written batch with the watermark of the last row read so far. */
+  /**
+   * Called after every written batch with the watermark of the last row read so far, and once after a run
+   * that read nothing but moved an older engine's watermark back (see `upgradedWatermark`).
+   */
   onBatchWritten(stats: RunStats, checkpoint: StoredWatermark | null): Promise<void>;
   /** Called once per row that is finally given up on (only with the "skip" error policy). */
   onRowFailed(failure: RowFailure): void;
@@ -57,6 +60,7 @@ export class RunCancelledError extends Error {
 }
 
 const MAX_LOGGED_ROW_ERRORS = 20;
+const LEGACY_START_NOTE = ` (watermark saved by an older version: starting ${LEGACY_DATE_WATERMARK_SHIFT_HOURS} h earlier to be safe)`;
 
 /**
  * Executes one job: read batch → look up → map → de-duplicate → upsert → checkpoint, until the
@@ -70,7 +74,10 @@ export class SyncRunner {
     const keyFields = job.target.keyFields;
     const stats: RunStats = { read: 0, written: 0, skipped: 0, batches: 0 };
     const skipBadRows = job.errorPolicy === 'skip';
-    let watermark = watermarkField ? request.from : null;
+    const startFrom = watermarkField && request.from ? upgradedWatermark(request.from) : null;
+    // A watermark from an older engine starts earlier; saving the moved-back value keeps it from moving again.
+    const movedBack = startFrom !== null && startFrom !== request.from;
+    let watermark = startFrom;
     let loggedErrors = 0;
     /** Rows whose write failed; each gets one more try after the last batch. */
     const retryLater: Array<{ number: number; row: Row }> = [];
@@ -85,7 +92,7 @@ export class SyncRunner {
       hooks.log(
         'info',
         watermark
-          ? `Reading rows where ${watermarkField} >= ${watermark.value}`
+          ? `Reading rows where ${watermarkField} >= ${watermark.value}${movedBack ? LEGACY_START_NOTE : ''}`
           : `No watermark yet: reading every row ordered by ${watermarkField}`,
       );
     }
@@ -144,6 +151,8 @@ export class SyncRunner {
     }
 
     throwIfCancelled(signal);
+    // Without a batch nothing was checkpointed: save the moved-back start, so the next run does not shift again.
+    if (movedBack && stats.batches === 0) await hooks.onBatchWritten({ ...stats }, watermark);
 
     if (retryLater.length > 0) {
       // A second chance fixes failures caused by order, e.g. a foreign key to a row from a later batch.

@@ -1,7 +1,7 @@
 import { Script, createContext } from 'node:vm';
 import { Injectable } from '@nestjs/common';
 import { ValidationError } from '../common/errors';
-import { normalizeValue } from '../common/values';
+import { normalizeValue, parseDateText } from '../common/values';
 
 export const TRANSFORM_NAMES = [
   'none',
@@ -42,13 +42,19 @@ const nullSafe =
     value === null || value === undefined ? null : convert(value);
 
 /**
+ * A date from a Date, epoch milliseconds or date text (an invalid Date when it is none of those).
  * Epoch milliseconds often arrive as text: PostgreSQL bigint columns are read as strings.
  * Twelve or more digits are read as a number, which covers every timestamp after 1973. Shorter text stays
  * text, so "2024" is still a year and compact dates ("20240131") or epoch seconds fail instead of landing in 1970.
+ * Other text goes through `parseDateText`: without an offset it means UTC, whatever the machine's zone.
  */
-function epochOrText(value: unknown): string | number {
-  if (typeof value === 'string' && /^-?\d{12,}$/.test(value.trim())) return Number(value);
-  return value as string | number;
+function toDate(value: unknown): Date {
+  if (value instanceof Date) return value;
+  const normalized = normalizeValue(value);
+  if (typeof normalized === 'number') return new Date(normalized);
+  if (typeof normalized !== 'string') return new Date(Number.NaN);
+  if (/^-?\d{12,}$/.test(normalized.trim())) return new Date(Number(normalized));
+  return new Date(parseDateText(normalized));
 }
 
 /** "42" → 42, "true" → true, '"x"' → "x", anything that is not JSON stays a string. */
@@ -158,7 +164,7 @@ const DEFINITIONS: readonly TransformDefinition[] = [
     sourceField: 'required',
     compile: () =>
       nullSafe((value) => {
-        const date = value instanceof Date ? value : new Date(epochOrText(normalizeValue(value)));
+        const date = toDate(value);
         if (Number.isNaN(date.getTime())) throw new Error(`"${toText(value)}" is not a valid date`);
         return date;
       }),

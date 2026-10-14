@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { getPath } from '../src/common/paths';
 import { keyString } from '../src/common/values';
-import { KeyReader, Row } from '../src/connectors/connector.types';
-import { DryRunWriter } from '../src/sync/dry-run-writer';
+import { ConnectionKind } from '../src/connections/connection.model';
+import { Connector, KeyReader, Row } from '../src/connectors/connector.types';
+import { DryRunWriter, dryRunWriterFor } from '../src/sync/dry-run-writer';
 
 /** A target that can only be read, so any write attempt would fail the test. */
 class ReadOnlyTarget implements KeyReader {
@@ -63,4 +64,24 @@ describe('DryRunWriter', () => {
     await merging.upsert('c', [{ id: 'a', name: 'Ann' }], ['id']);
     expect(merging.report.unchanged).toBe(1);
   });
+
+  describe('on the target chosen by its database kind', () => {
+    const writerFor = (kind: ConnectionKind, rows: Row[]) =>
+      dryRunWriterFor({ target: new ReadOnlyTarget(rows) as unknown as Connector, targetConnection: { kind } as PipelineView });
+
+    it('reports text written over a boolean as a change on a document target, which stores each value with its type', async () => {
+      const writer = writerFor('mongo', [{ id: 'a', active: true }]);
+      await writer.upsert('c', [{ id: 'a', active: '1' }], ['id']);
+      expect(writer.report).toMatchObject({ updates: 1, unchanged: 0 });
+      expect(writer.report.changes).toEqual([{ key: 'a', field: 'active', current: true, next: '1' }]);
+    });
+
+    it('leaves a decimal written as other text unchanged on a SQL target, which converts it to the column type', async () => {
+      const writer = writerFor('postgres', [{ id: 'a', price: '12.5' }]);
+      await writer.upsert('t', [{ id: 'a', price: '12.50' }], ['id']);
+      expect(writer.report).toMatchObject({ updates: 0, unchanged: 1 });
+    });
+  });
 });
+
+type PipelineView = Parameters<typeof dryRunWriterFor>[0]['targetConnection'];

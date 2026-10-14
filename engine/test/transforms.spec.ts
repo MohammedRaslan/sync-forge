@@ -20,6 +20,14 @@ describe('transforms', () => {
     expect((apply('date', '2024') as Date).toISOString()).toBe('2024-01-01T00:00:00.000Z');
   });
 
+  it('reads a date-time text without an offset as UTC, whatever the machine zone', () => {
+    // The unit-test config runs in Europe/Athens; local parsing would be off by two hours.
+    expect((apply('date', '2025-03-01 10:00:00') as Date).toISOString()).toBe('2025-03-01T10:00:00.000Z');
+    expect((apply('date', '2025-03-01T10:00:00') as Date).toISOString()).toBe('2025-03-01T10:00:00.000Z');
+    expect((apply('date', '2025-03-01T10:00:00+02:00') as Date).toISOString()).toBe('2025-03-01T08:00:00.000Z');
+    expect((apply('date', '2025-03-01') as Date).toISOString()).toBe('2025-03-01T00:00:00.000Z');
+  });
+
   it('passes nulls through', () => {
     expect(apply('uppercase', null)).toBeNull();
     expect(apply('number', undefined)).toBeNull();
@@ -31,6 +39,7 @@ describe('transforms', () => {
     // Compact dates and epoch seconds as text are not read as milliseconds.
     expect(() => apply('date', '20240131')).toThrow('not a valid date');
     expect(() => apply('date', '1700000000')).toThrow('not a valid date');
+    expect(() => apply('date', true)).toThrow('not a valid date');
   });
 
   it('parses constant and default arguments as JSON when possible', () => {

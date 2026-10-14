@@ -79,6 +79,14 @@ describe('MySQL connector', () => {
     expect(await connector.count('prices')).toBe(2);
   });
 
+  it('reads DATETIME and DATE values written without an offset as UTC', async () => {
+    // The integration tests run in Europe/Athens (vitest.integration.config.ts), so local-time reading would fail.
+    await admin.query('CREATE TABLE naive_dates (id INT PRIMARY KEY, at DATETIME, day DATE)');
+    await admin.query("INSERT INTO naive_dates VALUES (1, '2025-03-01 10:00:00', '2025-03-01')");
+    const [row] = await connector.findByKeys('naive_dates', ['id'], [{ id: 1 }]);
+    expect(row).toEqual({ id: 1, at: new Date('2025-03-01T10:00:00.000Z'), day: new Date('2025-03-01T00:00:00.000Z') });
+  });
+
   it('round-trips booleans, JSON, big integers and UTC dates', async () => {
     await admin.query('CREATE TABLE types_test (id BIGINT PRIMARY KEY, active TINYINT(1), meta JSON, at DATETIME(3))');
     const at = new Date('2025-01-31T08:15:00.000Z');

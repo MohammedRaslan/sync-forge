@@ -7,6 +7,7 @@ import { ErrorNotice, Hint, Loading } from '../components/Feedback';
 import { FormField } from '../components/FormField';
 import { Icon } from '../components/Icon';
 import { useAsync } from '../hooks/useAsync';
+import { uploadCsvFileAsNamed } from '../lib/csvUpload';
 import { KIND_LABEL } from '../lib/format';
 import { CollectionPicker } from './editor/CollectionPicker';
 import { LookupEditor } from './editor/LookupEditor';
@@ -77,7 +78,10 @@ const TARGET_HINTS = {
     'Rows are matched on the key fields only. A clash on any other unique column fails the row instead of updating a different one. Unmapped columns keep their values.',
   mongo: 'Documents are matched on the key fields. Only mapped fields are updated; dotted names such as address.city write nested fields.',
   cosmos: 'Map a field to “id” and make it the only key. Writes replace whole documents, so map every field the document needs.',
-} as const;
+} as const satisfies Record<Exclude<Connection['kind'], 'csv'>, string>;
+
+/** Targets that keep value types, so text read from a CSV file stays text unless a transform converts it. */
+const TYPED_DOCUMENT_KINDS: ReadonlySet<Connection['kind'] | undefined> = new Set(['mongo', 'cosmos']);
 
 /** Loads the field list of a collection; a collection that does not exist yet simply has no fields. */
 function useFields(connectionId: string, collection: string) {
@@ -110,12 +114,14 @@ export function JobEditorPage() {
   const [describedQuery, setDescribedQuery] = useState<string>();
 
   const setup = useAsync(async () => {
-    const [connections, transforms, job] = await Promise.all([
+    const [connections, transforms, job, settingsView] = await Promise.all([
       api.connections.list(),
       api.transforms.list(),
       loadId ? api.jobs.get(loadId) : Promise.resolve(undefined),
+      // Only a new job takes the machine's default batch size; edits and copies keep their own.
+      loadId ? Promise.resolve(undefined) : api.settings.get(),
     ]);
-    return { connections, transforms, job };
+    return { connections, transforms, job, settings: settingsView?.settings };
   }, [loadId]);
 
   useEffect(() => {
@@ -126,10 +132,18 @@ export function JobEditorPage() {
     }
   }, [setup.data?.job, copyOf]);
 
+  // The form renders only after setup, so this runs before the user can edit anything.
+  const defaultBatchSize = setup.data?.settings?.defaultBatchSize;
+  useEffect(() => {
+    if (defaultBatchSize !== undefined) setDraft((job) => ({ ...job, batchSize: defaultBatchSize }));
+  }, [defaultBatchSize]);
+
   const connections = useMemo(() => new Map(setup.data?.connections.map((c) => [c.id, c]) ?? []), [setup.data]);
   const sourceConnection = connections.get(draft.source.connectionId);
   const targetConnection = connections.get(draft.target.connectionId);
   const isQuerySource = draft.source.query !== undefined;
+  // CSV files are read whole: no SQL query, no watermark (the engine refuses both).
+  const sourceIsCsv = sourceConnection?.kind === 'csv';
   const tableFields = useFields(draft.source.connectionId, isQuerySource ? '' : draft.source.collection);
   const queryFields = useAsync<FieldInfo[]>(
     () =>
@@ -304,6 +318,7 @@ export function JobEditorPage() {
   if (!setup.data) return <Loading />;
 
   const sortedConnections = setup.data.connections;
+  const targetConnections = sortedConnections.filter((c) => c.kind !== 'csv');
   const watermarkCandidates = (sourceFields.data ?? []).filter((field) => !NOT_ORDERABLE.has(field.type));
 
   return (
@@ -337,7 +352,16 @@ export function JobEditorPage() {
               <select
                 {...props}
                 value={draft.source.connectionId}
-                onChange={(event) => change((job) => ({ ...job, source: { connectionId: event.target.value, collection: '' } }))}
+                onChange={(event) => {
+                  const connectionId = event.target.value;
+                  const toCsv = connections.get(connectionId)?.kind === 'csv';
+                  change((job) => ({
+                    ...job,
+                    source: { connectionId, collection: '' },
+                    mode: toCsv ? 'full' : job.mode,
+                    watermarkField: toCsv ? undefined : job.watermarkField,
+                  }));
+                }}
               >
                 <option value="">Choose a connection</option>
                 {sortedConnections.map((c) => (
@@ -406,8 +430,12 @@ export function JobEditorPage() {
             </div>
           ) : (
             <CollectionPicker
-              label="Table or collection"
+              key={draft.source.connectionId}
+              label={sourceIsCsv ? 'File' : 'Table or collection'}
               connectionId={draft.source.connectionId}
+              onUpload={
+                sourceIsCsv ? (file, onProgress) => uploadCsvFileAsNamed(draft.source.connectionId, file, onProgress) : undefined
+              }
               value={draft.source.collection}
               onChange={(collection) => change((job) => ({ ...job, source: { ...job.source, collection } }))}
             />
@@ -485,7 +513,7 @@ export function JobEditorPage() {
                 }
               >
                 <option value="">Choose a connection</option>
-                {sortedConnections.map((c) => (
+                {targetConnections.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} ({KIND_LABEL[c.kind]})
                   </option>
@@ -493,6 +521,9 @@ export function JobEditorPage() {
               </select>
             )}
           </FormField>
+          {targetConnections.length === 0 && sortedConnections.length > 0 && (
+            <Hint>CSV connections can be a source or a lookup, not a target. Add a database connection to write to.</Hint>
+          )}
           <CollectionPicker
             label="Table or collection"
             allowNew
@@ -500,7 +531,7 @@ export function JobEditorPage() {
             value={draft.target.collection}
             onChange={(collection) => change((job) => ({ ...job, target: { ...job.target, collection } }))}
           />
-          {targetConnection && <Hint>{TARGET_HINTS[targetConnection.kind]}</Hint>}
+          {targetConnection && targetConnection.kind !== 'csv' && <Hint>{TARGET_HINTS[targetConnection.kind]}</Hint>}
         </div>
       </section>
 
@@ -518,6 +549,9 @@ export function JobEditorPage() {
             onToggleKey={toggleKey}
             onAdd={() => change((job) => ({ ...job, mappings: [...job.mappings, { to: '', transform: 'expression', argument: '' }] }))}
           />
+          {sourceIsCsv && TYPED_DOCUMENT_KINDS.has(targetConnection?.kind) && (
+            <Hint>CSV values are text. Pick a transform (number, boolean, date) for fields that should not stay text.</Hint>
+          )}
           {draft.mappings.length > 0 && draft.target.keyFields.length === 0 && (
             <Hint tone="warn">Mark at least one target field as the key, so re-runs update rows instead of duplicating them.</Hint>
           )}
@@ -539,11 +573,18 @@ export function JobEditorPage() {
           <fieldset className="segmented" aria-label="Run mode">
             {(['full', 'incremental'] as const).map((mode) => (
               <label key={mode} className={draft.mode === mode ? 'is-selected' : undefined}>
-                <input type="radio" name="mode" checked={draft.mode === mode} onChange={() => change((job) => ({ ...job, mode }))} />
+                <input
+                  type="radio"
+                  name="mode"
+                  checked={draft.mode === mode}
+                  disabled={sourceIsCsv && mode === 'incremental'}
+                  onChange={() => change((job) => ({ ...job, mode }))}
+                />
                 {mode === 'full' ? 'Full copy every run' : 'Only new and changed rows'}
               </label>
             ))}
           </fieldset>
+          {sourceIsCsv && <Hint>CSV files run in full mode: each upload replaces the file, and re-running is safe.</Hint>}
           <div className="form-grid">
             {draft.mode === 'incremental' && (
               <FormField label="Watermark field" hint="A field that grows when a row changes, such as updated_at. Each run continues from the last value it saw.">

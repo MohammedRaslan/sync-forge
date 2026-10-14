@@ -12,6 +12,8 @@ import { join } from 'node:path';
  *       runs/        run history
  *       state/       incremental watermarks per job
  *       reconciles/  counts of the latest reconcile per job
+ *       settings/    app settings (app.json)
+ *       uploads/     files of CSV connections, one folder per connection id (created on first upload)
  */
 export class Workspace {
   constructor(readonly root: string) {}
@@ -32,6 +34,7 @@ export class Workspace {
         this.local('runs'),
         this.local('state'),
         this.local('reconciles'),
+        this.local('settings'),
       ].map((dir) => mkdir(dir, { recursive: true })),
     );
     await this.ensureGitignore();

@@ -1,4 +1,4 @@
-import { ConnectionView, SECRET_FIELD, SECRET_REQUIRED } from '../connections/connection.model';
+import { ConnectionKind, ConnectionView, SECRET_FIELD, SECRET_REQUIRED } from '../connections/connection.model';
 import { Job } from './job.model';
 
 const SECRET_LABEL = { password: 'password', uri: 'connection string', key: 'key' } as const; // labels only; secret-scan: allow
@@ -10,6 +10,23 @@ export const STANDALONE_MODULE = 'sync-forge-engine/standalone';
 export function secretEnvName(connectionName: string, field: string): string {
   const base = connectionName.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'CONNECTION';
   return `${/^[0-9]/.test(base) ? `_${base}` : base}_${field.toUpperCase()}`;
+}
+
+/** The connection setting a script reads from an environment variable, what to call it, and whether it must be set. */
+export interface ScriptEnvField {
+  field: string;
+  label: string;
+  required: boolean;
+}
+
+/**
+ * Databases: the secret field. CSV connections have no secret, but their folder differs per machine,
+ * so it comes from the environment too.
+ */
+export function scriptEnvField(kind: ConnectionKind): ScriptEnvField {
+  const field = SECRET_FIELD[kind];
+  if (field === null) return { field: 'directory', label: 'folder holding the CSV files', required: true };
+  return { field, label: SECRET_LABEL[field], required: SECRET_REQUIRED[kind] };
 }
 
 /** A value as TypeScript source, indented to sit at `indent` spaces. */
@@ -24,20 +41,21 @@ function inComment(text: string): string {
 
 /**
  * A runnable `<job>.sync.ts` for a saved job: the spec, every connection it uses without secrets, and a call
- * into the engine's standalone runner. Each secret is read from an environment variable named in the header.
+ * into the engine's standalone runner. Each secret, and each CSV folder, is read from an environment variable named in the header.
  */
 export function buildJobScript(job: Job, connections: readonly ConnectionView[], exportedOn: string): { fileName: string; content: string } {
   const { createdAt: _created, updatedAt: _updated, ...spec } = job;
   const used = new Set<string>();
-  const secrets = connections.map((connection) => {
-    const field = SECRET_FIELD[connection.kind];
+  const fromEnv = connections.map((connection) => {
+    const { field, label, required } = scriptEnvField(connection.kind);
     let name = secretEnvName(connection.name, field);
     if (used.has(name)) name = secretEnvName(`${connection.name} ${connection.id}`, field);
     used.add(name);
-    return { connection, field, name, reader: SECRET_REQUIRED[connection.kind] ? 'env' : 'optionalEnv' };
+    return { connection, field, label, name, reader: required ? 'env' : 'optionalEnv' };
   });
+  const hasCsv = connections.some((connection) => connection.kind === 'csv');
 
-  const connectionEntries = secrets.map(({ connection, field, name, reader }) => {
+  const connectionEntries = fromEnv.map(({ connection, field, name, reader }) => {
     const settings = Object.entries({ ...connection.settings, kind: connection.kind })
       .sort(([a], [b]) => (a === 'kind' ? -1 : b === 'kind' ? 1 : 0))
       .map(([key, value]) => `        ${JSON.stringify(key)}: ${literal(value, 8)},`);
@@ -52,16 +70,17 @@ export function buildJobScript(job: Job, connections: readonly ConnectionView[],
     ].join('\n');
   });
 
-  const envLines = secrets.map(
-    ({ connection, field, name, reader }) =>
-      ` *   ${name.padEnd(32)} ${SECRET_LABEL[field]} of "${inComment(connection.name)}"${reader === 'optionalEnv' ? ' (optional)' : ''}`,
+  const envLines = fromEnv.map(
+    ({ connection, label, name, reader }) =>
+      ` *   ${name.padEnd(32)} ${label} of "${inComment(connection.name)}"${reader === 'optionalEnv' ? ' (optional)' : ''}`,
   );
-  const readers = [...new Set(secrets.map((secret) => secret.reader))].sort();
+  if (hasCsv) envLines.push(' * CSV files must keep the names they were uploaded with: the job refers to them by name.');
+  const readers = [...new Set(fromEnv.map((entry) => entry.reader))].sort();
 
   const content = `/**
  * Syncforge job "${inComment(job.name)}" (${job.id}), exported ${exportedOn}.
  *
- * Runs with the Syncforge engine's own code, exactly like a run in the app. Secrets come from environment variables:
+ * Runs with the Syncforge engine's own code, exactly like a run in the app. ${hasCsv ? 'Secrets and CSV folders come' : 'Secrets come'} from environment variables:
 ${envLines.join('\n')}
  *
  * Run it (after \`npm run build\` in the Syncforge engine/ folder):

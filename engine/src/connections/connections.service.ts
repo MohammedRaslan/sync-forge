@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { Injectable } from '@nestjs/common';
 import { ConnectorFactory } from '../connectors/connector.factory';
 import { CollectionInfo, Connector, FieldInfo } from '../connectors/connector.types';
@@ -5,11 +6,16 @@ import { AppError, NotFoundError, UpstreamError, ValidationError, errorMessage }
 import { createId } from '../common/ids';
 import { SecretBox } from '../storage/secret-box';
 import { ConnectionsRepository } from './connections.repository';
+import { CsvFileStore } from './csv-file-store';
 import {
   ConnectionConfig,
+  ConnectorConfig,
   ConnectionInput,
   ConnectionTestResult,
   ConnectionView,
+  CsvConfig,
+  CsvFileInfo,
+  CsvFileList,
   SECRET_FIELD,
   SECRET_REQUIRED,
   StoredConnection,
@@ -27,6 +33,7 @@ export class ConnectionsService {
     private readonly repository: ConnectionsRepository,
     private readonly secrets: SecretBox,
     private readonly connectors: ConnectorFactory,
+    private readonly files: CsvFileStore,
   ) {}
 
   async list(): Promise<ConnectionView[]> {
@@ -78,12 +85,35 @@ export class ConnectionsService {
 
   async remove(id: string): Promise<void> {
     if (!(await this.repository.delete(id))) throw new NotFoundError(`Connection "${id}" does not exist`);
+    // Uploaded files are customer data: they go with their connection. Whatever its kind now: it may have
+    // been a CSV connection with files before an edit changed its kind. Nothing to do when there are none.
+    await this.files.removeAll(id);
+  }
+
+  /** The files uploaded to a CSV connection, with the current size limit for new uploads. */
+  async listFiles(id: string): Promise<CsvFileList> {
+    await this.csvConfig(id);
+    const [maxBytes, files] = await Promise.all([this.files.maxBytes(), this.files.list(id)]);
+    return { maxBytes, files };
+  }
+
+  /** Saves an upload to a CSV connection, replacing a file of the same name. */
+  async saveFile(id: string, name: string, body: Readable, declaredLength?: number): Promise<CsvFileInfo> {
+    const config = await this.csvConfig(id);
+    return this.files.save(id, name, body, { delimiter: config.delimiter, declaredLength });
+  }
+
+  async removeFile(id: string, name: string): Promise<void> {
+    await this.csvConfig(id);
+    await this.files.remove(id, name);
   }
 
   /** Tests unsaved settings. When `existingId` is given, a blank secret falls back to the saved one. */
   async test(config: ConnectionConfig, existingId?: string): Promise<ConnectionTestResult> {
     const effective = existingId ? this.mergeSecret(config, (await this.resolve(existingId)).config) : config;
     this.assertSecretPresent(effective);
+    // Uploaded files live inside Syncforge's own workspace, so there is nothing outside it to reach.
+    if (effective.kind === 'csv') return { ok: true, latencyMs: 0 };
     let connector: Connector | undefined;
     const started = Date.now();
     try {
@@ -117,7 +147,19 @@ export class ConnectionsService {
   /** Opens a connector for a saved connection. The caller owns it and must close it. */
   async open(id: string): Promise<{ connector: Connector; view: ConnectionView }> {
     const { view, config } = await this.resolve(id);
-    return { connector: this.connectors.create(config), view };
+    return { connector: this.connectors.create(this.connectorConfigFor(id, config)), view };
+  }
+
+  /** The saved settings plus what a connector needs but is not stored with them: the folder of a CSV connection. */
+  private connectorConfigFor(id: string, config: ConnectionConfig): ConnectorConfig {
+    return config.kind === 'csv' ? { ...config, directory: this.files.directoryFor(id) } : config;
+  }
+
+  /** The settings of a CSV connection; other kinds hold no files. */
+  private async csvConfig(id: string): Promise<CsvConfig> {
+    const { config } = await this.resolve(id);
+    if (config.kind !== 'csv') throw new ValidationError('Only CSV connections hold files');
+    return config;
   }
 
   /** Runs `work` with a short-lived connector and reports driver failures with the connection's name. */
@@ -135,6 +177,7 @@ export class ConnectionsService {
 
   private mergeSecret(incoming: ConnectionConfig, existing: ConnectionConfig): ConnectionConfig {
     const field = SECRET_FIELD[incoming.kind];
+    if (field === null) return incoming;
     const value = (incoming as Record<string, unknown>)[field];
     if (value !== '' || existing.kind !== incoming.kind) return incoming;
     return { ...incoming, [field]: (existing as Record<string, unknown>)[field] } as ConnectionConfig;
@@ -142,7 +185,7 @@ export class ConnectionsService {
 
   private assertSecretPresent(config: ConnectionConfig): void {
     const field = SECRET_FIELD[config.kind];
-    if (SECRET_REQUIRED[config.kind] && !(config as Record<string, unknown>)[field]) {
+    if (field !== null && SECRET_REQUIRED[config.kind] && !(config as Record<string, unknown>)[field]) {
       throw new ValidationError(`config.${field}: Required`);
     }
   }
@@ -156,8 +199,7 @@ export class ConnectionsService {
   }
 
   private toView(stored: StoredConnection, config: ConnectionConfig): ConnectionView {
-    const secretField = SECRET_FIELD[config.kind];
-    const { [secretField]: secret, ...settings } = config as Record<string, unknown>;
+    const { secret, settings } = splitSecret(config);
     return {
       id: stored.id,
       name: stored.name,
@@ -180,7 +222,17 @@ function summarize(config: ConnectionConfig): string {
       return `${redactMongoUri(config.uri)} / ${config.database}`;
     case 'cosmos':
       return `${config.endpoint} / ${config.database}`;
+    case 'csv':
+      return `CSV files, delimiter ${config.delimiter === '\t' ? 'tab' : config.delimiter}`;
   }
+}
+
+/** The settings without the secret field, and the secret apart. Kinds without a secret keep every setting. */
+function splitSecret(config: ConnectionConfig): { secret: unknown; settings: Record<string, unknown> } {
+  const field = SECRET_FIELD[config.kind];
+  if (field === null) return { secret: undefined, settings: { ...config } };
+  const { [field]: secret, ...settings } = config as Record<string, unknown>;
+  return { secret, settings };
 }
 
 /** mongodb://user:pass@host:27017/?x=y becomes mongodb://host:27017 */

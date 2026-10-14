@@ -33,6 +33,10 @@ export function AppShell() {
               <Icon name="database" />
               <span>Connections</span>
             </NavLink>
+            <NavLink to="/settings" className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`}>
+              <Icon name="gear" />
+              <span>Settings</span>
+            </NavLink>
           </nav>
           <div className="topbar-actions">
             <ThemeToggle />

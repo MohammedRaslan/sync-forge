@@ -8,5 +8,7 @@ export default defineConfig({
     // Pulling images and booting the Cosmos DB emulator can take minutes on a cold machine.
     hookTimeout: 300_000,
     testTimeout: 60_000,
+    // A zone that is never UTC, so a driver reading naive dates as local time fails here on every machine.
+    env: { TZ: 'Europe/Athens' },
   },
 });
