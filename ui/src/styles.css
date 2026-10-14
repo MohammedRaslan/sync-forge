@@ -397,6 +397,11 @@ a {
   color: var(--ink);
 }
 
+.icon-button-danger:hover:not(:disabled) {
+  border-color: var(--danger-edge);
+  color: var(--danger);
+}
+
 .icon-button:disabled {
   opacity: 0.35;
   cursor: not-allowed;
@@ -865,9 +870,68 @@ input[type='radio'] {
   gap: 12px;
 }
 
-.job-row-meta {
+.job-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.job-search {
+  flex: 1 1 240px;
+  max-width: 420px;
+}
+
+.job-row-health {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  margin: 0;
+  /* Room for the duplicate and delete buttons in the card's bottom-right corner. */
+  padding: 0 84px 0 0;
   color: var(--ink-faint);
   font-size: 0.86rem;
+  list-style: none;
+}
+
+.job-row-health li + li::before {
+  content: '\00b7';
+  margin: 0 0.5em;
+  color: var(--ink-faint);
+}
+
+.job-row-health .is-ok {
+  color: var(--ok);
+}
+
+.job-row-health .is-warn {
+  color: var(--warn);
+}
+
+.job-row-health .is-danger {
+  color: var(--danger);
+}
+
+/* One line of the error; the full text is in the title. */
+.job-row-error {
+  max-width: 48ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-item {
+  position: relative;
+}
+
+.job-row-actions {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  display: flex;
+  gap: 4px;
 }
 
 /* ---------- Connections ---------- */
@@ -1706,6 +1770,21 @@ input[type='radio'] {
   .conduit-target {
     box-shadow: inset 3px 0 0 var(--target);
     text-align: left;
+  }
+
+  .job-search {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  /* One fact per line: wrapped " · " separators read as stray dots on a phone. */
+  .job-row-health {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .job-row-health li + li::before {
+    content: none;
   }
 
   .page-actions,

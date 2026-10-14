@@ -11,6 +11,7 @@ import { join } from 'node:path';
  *       connections/ encrypted connection settings
  *       runs/        run history
  *       state/       incremental watermarks per job
+ *       reconciles/  counts of the latest reconcile per job
  */
 export class Workspace {
   constructor(readonly root: string) {}
@@ -25,9 +26,13 @@ export class Workspace {
 
   async prepare(): Promise<void> {
     await Promise.all(
-      [this.jobsDir, this.local('connections'), this.local('runs'), this.local('state')].map((dir) =>
-        mkdir(dir, { recursive: true }),
-      ),
+      [
+        this.jobsDir,
+        this.local('connections'),
+        this.local('runs'),
+        this.local('state'),
+        this.local('reconciles'),
+      ].map((dir) => mkdir(dir, { recursive: true })),
     );
     await this.ensureGitignore();
   }

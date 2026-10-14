@@ -9,6 +9,7 @@ import type {
   JobInput,
   PreviewResult,
   ReconcileReport,
+  ReconcileSummary,
   SourcePreview,
   RunRecord,
   RunSummary,
@@ -82,6 +83,9 @@ export const api = {
     runs: (id: string) => request<RunSummary[]>('GET', `/jobs/${enc(id)}/runs`),
     start: (id: string, options: { dryRun?: boolean } = {}) => request<RunRecord>('POST', `/jobs/${enc(id)}/runs`, options),
     reconcile: (id: string) => request<ReconcileReport>('POST', `/jobs/${enc(id)}/reconcile`),
+  },
+  reconciles: {
+    latest: () => request<Record<string, ReconcileSummary>>('GET', '/reconciles/latest'),
   },
   runs: {
     latest: () => request<Record<string, RunSummary>>('GET', '/runs/latest'),

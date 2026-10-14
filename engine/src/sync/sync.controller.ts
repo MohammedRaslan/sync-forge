@@ -3,6 +3,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { z } from 'zod';
 import { JobInput, SourcePreviewInput, previewInputSchema, sourcePreviewSchema } from '../jobs/job.model';
 import { JobsService } from '../jobs/jobs.service';
+import { ReconcilesService } from './reconciles.service';
 import { RunsService } from './runs.service';
 import { SyncService } from './sync.service';
 
@@ -14,6 +15,7 @@ export class SyncController {
     private readonly jobs: JobsService,
     private readonly runs: RunsService,
     private readonly sync: SyncService,
+    private readonly reconciles: ReconcilesService,
   ) {}
 
   /** Dry run of an unsaved job: reads a few rows and maps them, writes nothing. */
@@ -42,10 +44,11 @@ export class SyncController {
     return this.runs.listForJob(id);
   }
 
+  /** Also stores the report's counts as the job's latest reconcile. */
   @Post(':id/reconcile')
   @HttpCode(200)
   async reconcile(@Param('id') id: string) {
-    return this.sync.reconcile(await this.jobs.get(id));
+    return this.reconciles.reconcile(await this.jobs.get(id));
   }
 }
 
@@ -67,5 +70,16 @@ export class RunsController {
   @HttpCode(200)
   cancel(@Param('id') id: string) {
     return this.runs.cancel(id);
+  }
+}
+
+@Controller('reconciles')
+export class ReconcilesController {
+  constructor(private readonly reconciles: ReconcilesService) {}
+
+  /** Counts of the latest reconcile per job id. */
+  @Get('latest')
+  latest() {
+    return this.reconciles.latestByJob();
   }
 }

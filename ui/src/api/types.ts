@@ -186,3 +186,16 @@ export interface ReconcileReport {
   mismatches: Array<{ key: string; field: string; expected: unknown; actual: unknown }>;
   unmappable: number;
 }
+
+/** Counts of a job's latest reconcile (no keys or values), from `GET /reconciles/latest`. */
+export interface ReconcileSummary {
+  jobId: string;
+  checkedAt: string;
+  sourceCount: number;
+  targetCount: number;
+  sampled: number;
+  matched: number;
+  missingCount: number;
+  mismatchedRows: number;
+  unmappable: number;
+}

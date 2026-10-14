@@ -34,7 +34,7 @@ flowchart LR
 | `connectors/` | One class per database engine behind a common `Connector` interface. Pure SQL builders live next to the Postgres connector. |
 | `transforms/` | The registry of field transforms. |
 | `jobs/` | Job specs (validation, CRUD), incremental state (watermarks), and `RunLocks`. |
-| `sync/` | Everything about executing a job: `RowMapper`, `SyncRunner`, `SyncService` (preview, reconciliation), `RunsService` (background runs and history). |
+| `sync/` | Everything about executing a job: `RowMapper`, `SyncRunner`, `SyncService` (preview, reconciliation), `ReconcilesService` (keeps the latest reconcile's counts), `RunsService` (background runs and history). |
 | `storage/` | `JsonDirectoryStore` (one entity per JSON file, atomic writes), `SecretBox` (AES-256-GCM), `Workspace` (folder layout). |
 | `common/` | Errors and their HTTP mapping, zod validation pipe, value normalization and comparison, path helpers. |
 
@@ -65,6 +65,8 @@ Dependencies point one way: `sync` → `jobs` → `connections` → `connectors`
 **Values survive the trip.** Drivers return their own types (BSON `ObjectId`, `Decimal128`, `bigint` as strings, `Buffer`). `normalizeValue` converts them to portable values before they cross into a different database or into JSON. MongoDB-to-MongoDB jobs keep BSON types because the Mongo connector writes values as they come.
 
 **Representation-tolerant verification.** Reconciliation compares with `valuesEqual`, which treats `12.5` and `"12.50"`, a `Date` and its ISO string, and a JSON string and the parsed object as equal. Row identity uses `keyString`, which does the same for keys (`1` and `"1"`, an `ObjectId` and its hex).
+
+**Latest reconcile kept as counts only.** After a successful reconcile, `ReconcilesService` saves a `ReconcileSummary` (counts and `checkedAt`) to `workspace/.local/reconciles/<jobId>.json`, replacing the previous one; a failed reconcile saves nothing. Missing keys and mismatched values are never stored, because they are customer data. Like run history, a summary is kept when its job is deleted.
 
 ## Security model
 
@@ -124,8 +126,9 @@ All routes are under `/api`. Errors are JSON with a `message` and, for validatio
 | `POST /jobs/preview` | Map the first 10 rows of an unsaved job without writing; includes the write statement for the first mapped rows. |
 | `POST /jobs/source-preview` | First source rows (conditions applied, lookups attached), the read statement and each lookup's query; needs no target or mappings. |
 | `POST /jobs/:id/runs` · `GET /jobs/:id/runs` | Start a run (`202`; body `{ "dryRun": true }` for a dry run), list history. |
-| `POST /jobs/:id/reconcile` | Compare counts and a 200-row sample between source and target. |
+| `POST /jobs/:id/reconcile` | Compare counts and a 200-row sample between source and target. Stores the counts as the job's latest reconcile. |
 | `GET/DELETE /jobs/:id/watermark` | Read or reset the incremental watermark. |
+| `GET /reconciles/latest` | Counts of the latest reconcile per job id (`ReconcileSummary`; no keys or values). |
 | `GET /runs/latest` · `GET /runs/:id` · `POST /runs/:id/cancel` | Latest run per job, run detail with log, cancel. |
 | `GET /health` | Liveness. |
 

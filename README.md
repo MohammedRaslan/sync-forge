@@ -145,7 +145,7 @@ Everything Syncforge stores lives in `workspace/`:
 ```
 workspace/
   jobs/        job specs, one JSON file each. Commit these.
-  .local/      secrets, connections, run history, watermarks. Never commit (git-ignored automatically).
+  .local/      secrets, connections, run history, watermarks, latest reconcile counts. Never commit (git-ignored automatically).
 ```
 
 Job specs refer to connections by id. To use a colleague's job, create connections with the same ids on your machine, or open the job and pick your own connections.
