@@ -19,16 +19,110 @@
   --warn: #ffc266;
   --danger: #ff7a8a;
 
+  /* Accent variants: tints fill, edges outline, inks are text on a tint. */
+  --source-tint: rgba(92, 225, 230, 0.12);
+  --source-edge: rgba(92, 225, 230, 0.45);
+  --source-edge-strong: rgba(92, 225, 230, 0.55);
+  --focus-ring: rgba(92, 225, 230, 0.18);
+  --target-glow: rgba(169, 139, 255, 0.55);
+  --ok-tint: rgba(110, 231, 168, 0.12);
+  --ok-edge: rgba(110, 231, 168, 0.45);
+  --warn-tint: rgba(255, 194, 102, 0.12);
+  --warn-edge: rgba(255, 194, 102, 0.5);
+  --warn-ink: #ffe1ad;
+  --danger-tint: rgba(255, 122, 138, 0.12);
+  --danger-tint-control: rgba(255, 122, 138, 0.1);
+  --danger-tint-panel: rgba(255, 122, 138, 0.08);
+  --danger-tint-row: rgba(255, 122, 138, 0.07);
+  --danger-edge: rgba(255, 122, 138, 0.45);
+  --danger-edge-strong: rgba(255, 122, 138, 0.5);
+  --danger-ink: #ffd0d6;
+
+  --primary-hover: #8aeef1;
+  --on-primary: #06212a;
+  --control-hover: #20305f;
+  --seam-soft: rgba(40, 54, 95, 0.6);
+
+  /* Translucent surfaces let the dot grid show through. */
+  --surface-glass: rgba(19, 29, 61, 0.85);
+  --surface-sunken: rgba(13, 21, 48, 0.6);
+  --bar-surface: rgba(13, 21, 48, 0.85);
+  --action-bar-surface: rgba(13, 21, 48, 0.92);
+  --overlay: rgba(5, 9, 24, 0.6);
+  --dot-grid: rgba(140, 160, 220, 0.08);
+  --signal: #ffffff;
+
+  /* Database kinds, kept apart from the source/target accents. */
+  --kind-postgres: #7fb2ff;
+  --kind-mysql: #f29db4;
+  --kind-mongo: #86e0a0;
+  --kind-cosmos: #f3b46e;
+
   --font-display: 'Chakra Petch', 'Segoe UI', system-ui, sans-serif;
   --font-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 
   --radius-panel: 14px;
   --radius-control: 8px;
-  --rail-width: 216px;
   --bar-height: 64px;
 
   color-scheme: dark;
+}
+
+/* Light theme: same roles, accents darkened to stay readable on white. */
+:root[data-theme='light'] {
+  --abyss: #f3f5fa;
+  --hull: #ffffff;
+  --hull-raised: #eaeef7;
+  --seam: #d6dcea;
+  --seam-strong: #b3bdd6;
+  --ink: #17203b;
+  --ink-dim: #4a5678;
+  --ink-faint: #6f7a9b;
+
+  --source: #0a7681;
+  --target: #6a48d7;
+  --ok: #187a4a;
+  --warn: #9a5b00;
+  --danger: #c8324a;
+
+  --source-tint: rgba(10, 118, 129, 0.12);
+  --source-edge: rgba(10, 118, 129, 0.45);
+  --source-edge-strong: rgba(10, 118, 129, 0.55);
+  --focus-ring: rgba(10, 118, 129, 0.22);
+  --target-glow: rgba(106, 72, 215, 0.35);
+  --ok-tint: rgba(24, 122, 74, 0.12);
+  --ok-edge: rgba(24, 122, 74, 0.45);
+  --warn-tint: rgba(154, 91, 0, 0.12);
+  --warn-edge: rgba(154, 91, 0, 0.5);
+  --warn-ink: #6e4100;
+  --danger-tint: rgba(200, 50, 74, 0.12);
+  --danger-tint-control: rgba(200, 50, 74, 0.1);
+  --danger-tint-panel: rgba(200, 50, 74, 0.08);
+  --danger-tint-row: rgba(200, 50, 74, 0.07);
+  --danger-edge: rgba(200, 50, 74, 0.45);
+  --danger-edge-strong: rgba(200, 50, 74, 0.5);
+  --danger-ink: #8f1d31;
+
+  --primary-hover: #08636b;
+  --on-primary: #ffffff;
+  --control-hover: #dde3f0;
+  --seam-soft: rgba(214, 220, 234, 0.6);
+
+  --surface-glass: rgba(255, 255, 255, 0.85);
+  --surface-sunken: rgba(243, 245, 250, 0.6);
+  --bar-surface: rgba(255, 255, 255, 0.85);
+  --action-bar-surface: rgba(243, 245, 250, 0.92);
+  --overlay: rgba(15, 23, 42, 0.35);
+  --dot-grid: rgba(30, 45, 90, 0.08);
+  --signal: #ffffff;
+
+  --kind-postgres: #2b6cd4;
+  --kind-mysql: #c2416b;
+  --kind-mongo: #2e9a55;
+  --kind-cosmos: #b8660f;
+
+  color-scheme: light;
 }
 
 *,
@@ -45,7 +139,7 @@ body {
   margin: 0;
   min-height: 100vh;
   background-color: var(--abyss);
-  background-image: radial-gradient(rgba(140, 160, 220, 0.08) 1px, transparent 1px);
+  background-image: radial-gradient(var(--dot-grid) 1px, transparent 1px);
   background-size: 22px 22px;
   color: var(--ink);
   font: 400 15px/1.55 var(--font-body);
@@ -100,61 +194,91 @@ a {
 
 /* ---------- Shell ---------- */
 .shell {
-  display: grid;
-  grid-template-columns: var(--rail-width) minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
 
-.rail {
+.topbar {
   position: sticky;
   top: 0;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 20px 14px;
-  border-right: 1px solid var(--seam);
-  background: rgba(13, 21, 48, 0.85);
+  z-index: 10;
+  height: var(--bar-height);
+  border-bottom: 1px solid var(--seam);
+}
+
+/* The blur sits on a pseudo-element: a filter on the header itself would become the
+   containing block of the fixed bottom tab bar on phones. */
+.topbar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--bar-surface);
   backdrop-filter: blur(8px);
+}
+
+/* Same width and gutters as .main so the bar lines up with page content. */
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 4vw, 48px);
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 8px 22px;
   color: var(--ink);
   text-decoration: none;
   font: 600 1.2rem var(--font-display);
   letter-spacing: 0.03em;
 }
 
-.rail-link {
+.topbar-links {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: 4px;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
   border-radius: var(--radius-control);
   color: var(--ink-dim);
   text-decoration: none;
   font-weight: 500;
 }
 
-.rail-link:hover {
+.nav-link:hover {
   color: var(--ink);
   background: var(--hull);
 }
 
-.rail-link.is-active {
+.nav-link.is-active {
   color: var(--ink);
   background: var(--hull-raised);
-  box-shadow: inset 2px 0 0 var(--source);
+  box-shadow: inset 0 -2px 0 var(--source);
+}
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .main {
   width: 100%;
   /* Wide enough for data tables on large screens; text blocks keep their own ch limits. */
   max-width: 1600px;
+  margin: 0 auto;
   padding: 36px clamp(16px, 4vw, 48px) 120px;
 }
 
@@ -215,7 +339,7 @@ a {
 
 .btn:hover:not(:disabled) {
   border-color: var(--ink-faint);
-  background: #20305f;
+  background: var(--control-hover);
 }
 
 .btn:disabled {
@@ -226,13 +350,13 @@ a {
 .btn-primary {
   border-color: var(--source);
   background: var(--source);
-  color: #06212a;
+  color: var(--on-primary);
   font-weight: 600;
 }
 
 .btn-primary:hover:not(:disabled) {
-  border-color: #8aeef1;
-  background: #8aeef1;
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
 }
 
 .btn-quiet {
@@ -252,8 +376,8 @@ a {
 }
 
 .btn-danger:not(.btn-quiet) {
-  border-color: rgba(255, 122, 138, 0.5);
-  background: rgba(255, 122, 138, 0.1);
+  border-color: var(--danger-edge-strong);
+  background: var(--danger-tint-control);
 }
 
 .icon-button {
@@ -318,7 +442,7 @@ select:focus,
 textarea:focus {
   border-color: var(--source);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(92, 225, 230, 0.18);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 input:disabled {
@@ -426,9 +550,9 @@ input[type='radio'] {
 }
 
 .notice-error {
-  border-color: rgba(255, 122, 138, 0.45);
-  background: rgba(255, 122, 138, 0.08);
-  color: #ffd0d6;
+  border-color: var(--danger-edge);
+  background: var(--danger-tint-panel);
+  color: var(--danger-ink);
 }
 
 .notice ul {
@@ -445,7 +569,7 @@ input[type='radio'] {
 
 .hint-warn {
   border-left-color: var(--warn);
-  color: #ffe1ad;
+  color: var(--warn-ink);
 }
 
 .loading {
@@ -504,7 +628,7 @@ input[type='radio'] {
 }
 
 .pill-running {
-  background: rgba(92, 225, 230, 0.12);
+  background: var(--source-tint);
   color: var(--source);
 }
 
@@ -513,17 +637,17 @@ input[type='radio'] {
 }
 
 .pill-succeeded {
-  background: rgba(110, 231, 168, 0.12);
+  background: var(--ok-tint);
   color: var(--ok);
 }
 
 .pill-failed {
-  background: rgba(255, 122, 138, 0.12);
+  background: var(--danger-tint);
   color: var(--danger);
 }
 
 .pill-cancelled {
-  background: rgba(255, 194, 102, 0.12);
+  background: var(--warn-tint);
   color: var(--warn);
 }
 
@@ -554,19 +678,19 @@ input[type='radio'] {
 }
 
 .kind-postgres::before {
-  background: #7fb2ff;
+  background: var(--kind-postgres);
 }
 
 .kind-mysql::before {
-  background: #f29db4;
+  background: var(--kind-mysql);
 }
 
 .kind-mongo::before {
-  background: #86e0a0;
+  background: var(--kind-mongo);
 }
 
 .kind-cosmos::before {
-  background: #f3b46e;
+  background: var(--kind-cosmos);
 }
 
 .tag {
@@ -578,7 +702,7 @@ input[type='radio'] {
 }
 
 .tag-key {
-  border-color: rgba(255, 194, 102, 0.5);
+  border-color: var(--warn-edge);
   color: var(--warn);
 }
 
@@ -656,13 +780,13 @@ input[type='radio'] {
   left: 0;
   width: 35%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, #ffffff, transparent);
+  background: linear-gradient(90deg, transparent, var(--signal), transparent);
   opacity: 0;
 }
 
 .conduit.is-active .conduit-line {
   opacity: 1;
-  box-shadow: 0 0 12px rgba(169, 139, 255, 0.55);
+  box-shadow: 0 0 12px var(--target-glow);
 }
 
 .conduit.is-active .conduit-signal {
@@ -802,7 +926,7 @@ input[type='radio'] {
   z-index: 20;
   display: flex;
   justify-content: flex-end;
-  background: rgba(5, 9, 24, 0.6);
+  background: var(--overlay);
 }
 
 .drawer {
@@ -869,7 +993,7 @@ input[type='radio'] {
   padding: 22px;
   border: 1px solid var(--seam);
   border-radius: var(--radius-panel);
-  background: rgba(19, 29, 61, 0.85);
+  background: var(--surface-glass);
 }
 
 .stage h2 {
@@ -928,7 +1052,7 @@ input[type='radio'] {
 }
 
 .picker-list button.is-selected {
-  background: rgba(92, 225, 230, 0.12);
+  background: var(--source-tint);
   color: var(--source);
 }
 
@@ -1001,9 +1125,9 @@ input[type='radio'] {
   gap: 14px;
   padding: 16px;
   border: 1px solid var(--seam);
-  border-left: 3px solid rgba(92, 225, 230, 0.55);
+  border-left: 3px solid var(--source-edge-strong);
   border-radius: var(--radius-control);
-  background: rgba(13, 21, 48, 0.6);
+  background: var(--surface-sunken);
 }
 
 .lookup-head {
@@ -1114,8 +1238,8 @@ input[type='radio'] {
 }
 
 .key-toggle.is-on {
-  border-color: rgba(255, 194, 102, 0.5);
-  background: rgba(255, 194, 102, 0.12);
+  border-color: var(--warn-edge);
+  background: var(--warn-tint);
   color: var(--warn);
 }
 
@@ -1128,7 +1252,7 @@ input[type='radio'] {
   margin: 0 -8px;
   padding: 12px 8px calc(12px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--seam);
-  background: rgba(13, 21, 48, 0.92);
+  background: var(--action-bar-surface);
   backdrop-filter: blur(10px);
 }
 
@@ -1169,7 +1293,7 @@ input[type='radio'] {
   max-width: 320px;
   padding: 8px 12px;
   overflow: hidden;
-  border-bottom: 1px solid rgba(40, 54, 95, 0.6);
+  border-bottom: 1px solid var(--seam-soft);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1215,8 +1339,8 @@ input[type='radio'] {
 }
 
 .row-error td {
-  background: rgba(255, 122, 138, 0.07);
-  color: #ffd0d6;
+  background: var(--danger-tint-row);
+  color: var(--danger-ink);
   white-space: normal;
 }
 
@@ -1396,11 +1520,11 @@ input[type='radio'] {
 }
 
 .run-running {
-  border-color: rgba(92, 225, 230, 0.45);
+  border-color: var(--source-edge);
 }
 
 .run-failed {
-  border-color: rgba(255, 122, 138, 0.45);
+  border-color: var(--danger-edge);
 }
 
 .counters {
@@ -1450,11 +1574,11 @@ input[type='radio'] {
 }
 
 .reconcile.is-healthy {
-  border-color: rgba(110, 231, 168, 0.45);
+  border-color: var(--ok-edge);
 }
 
 .reconcile.has-issues {
-  border-color: rgba(255, 194, 102, 0.5);
+  border-color: var(--warn-edge);
 }
 
 .missing-keys code {
@@ -1470,46 +1594,6 @@ input[type='radio'] {
 
 /* ---------- Tablet and phone ---------- */
 @media (max-width: 880px) {
-  .shell {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .rail {
-    position: fixed;
-    inset: auto 0 0 0;
-    z-index: 10;
-    height: calc(var(--bar-height) + env(safe-area-inset-bottom));
-    flex-direction: row;
-    justify-content: space-around;
-    padding: 6px 12px env(safe-area-inset-bottom);
-    border-top: 1px solid var(--seam);
-    border-right: 0;
-  }
-
-  .brand {
-    display: none;
-  }
-
-  .rail-link {
-    flex: 1;
-    flex-direction: column;
-    justify-content: center;
-    gap: 2px;
-    font-size: 0.78rem;
-  }
-
-  .rail-link.is-active {
-    box-shadow: inset 0 2px 0 var(--source);
-  }
-
-  .main {
-    padding: 24px 16px calc(var(--bar-height) + 48px);
-  }
-
-  .action-bar {
-    bottom: calc(var(--bar-height) + env(safe-area-inset-bottom));
-  }
-
   .drawer {
     width: 100%;
     border-left: 0;
@@ -1564,6 +1648,39 @@ input[type='radio'] {
 }
 
 @media (max-width: 560px) {
+  /* Links move to a bottom tab bar; the top bar keeps the brand and actions. */
+  .topbar-links {
+    position: fixed;
+    inset: auto 0 0 0;
+    height: calc(var(--bar-height) + env(safe-area-inset-bottom));
+    justify-content: space-around;
+    padding: 6px 12px env(safe-area-inset-bottom);
+    border-top: 1px solid var(--seam);
+    background: var(--bar-surface);
+    backdrop-filter: blur(8px);
+  }
+
+  .nav-link {
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    font-size: 0.78rem;
+  }
+
+  .nav-link.is-active {
+    box-shadow: inset 0 2px 0 var(--source);
+  }
+
+  .main {
+    padding-top: 24px;
+    padding-bottom: calc(var(--bar-height) + 48px);
+  }
+
+  .action-bar {
+    bottom: calc(var(--bar-height) + env(safe-area-inset-bottom));
+  }
+
   .conduit:not(.conduit-compact) {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1579,7 +1696,7 @@ input[type='radio'] {
   .conduit:not(.conduit-compact) .conduit-signal {
     width: 100%;
     height: 35%;
-    background: linear-gradient(180deg, transparent, #ffffff, transparent);
+    background: linear-gradient(180deg, transparent, var(--signal), transparent);
   }
 
   .conduit.is-active:not(.conduit-compact) .conduit-signal {

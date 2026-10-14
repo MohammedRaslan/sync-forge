@@ -35,6 +35,8 @@ docker compose up --build
 
 Open <http://localhost:4000>.
 
+The sun/moon button in the top bar switches between the dark and light theme. Until you pick one, the UI follows your system setting.
+
 The app listens on `127.0.0.1` only. To reach a database running on your own machine from inside the container, use the host name `host.docker.internal`.
 
 ### Try it with demo data

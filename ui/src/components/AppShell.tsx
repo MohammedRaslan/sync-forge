@@ -1,5 +1,6 @@
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Icon } from './Icon';
+import { ThemeToggle } from './ThemeToggle';
 
 function BrandMark() {
   return (
@@ -17,20 +18,27 @@ export function AppShell() {
 
   return (
     <div className="shell">
-      <nav className="rail" aria-label="Main">
-        <Link to="/" className="brand">
-          <BrandMark />
-          <span>Syncforge</span>
-        </Link>
-        <NavLink to="/" className={() => `rail-link${onJobs ? ' is-active' : ''}`}>
-          <Icon name="flow" />
-          <span>Jobs</span>
-        </NavLink>
-        <NavLink to="/connections" className={({ isActive }) => `rail-link${isActive ? ' is-active' : ''}`}>
-          <Icon name="database" />
-          <span>Connections</span>
-        </NavLink>
-      </nav>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <Link to="/" className="brand">
+            <BrandMark />
+            <span>Syncforge</span>
+          </Link>
+          <nav className="topbar-links" aria-label="Main">
+            <NavLink to="/" className={() => `nav-link${onJobs ? ' is-active' : ''}`}>
+              <Icon name="flow" />
+              <span>Jobs</span>
+            </NavLink>
+            <NavLink to="/connections" className={({ isActive }) => `nav-link${isActive ? ' is-active' : ''}`}>
+              <Icon name="database" />
+              <span>Connections</span>
+            </NavLink>
+          </nav>
+          <div className="topbar-actions">
+            <ThemeToggle />
+          </div>
+        </div>
+      </header>
       <main className="main">
         <Outlet />
       </main>

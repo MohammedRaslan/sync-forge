@@ -14,6 +14,8 @@ const PATHS = {
   scale: 'M12 4v16M5 20h14M6 8l-3 7h6L6 8Zm12 0-3 7h6l-3-7ZM6 8h12',
   plug: 'M9 3v5M15 3v5M7 8h10v3a5 5 0 0 1-10 0V8Zm5 8v5',
   download: 'M12 4v11m-5-5 5 5 5-5M5 20h14',
+  sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-5v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4',
+  moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z',
 } as const;
 
 export type IconName = keyof typeof PATHS;
