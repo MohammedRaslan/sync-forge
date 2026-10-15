@@ -20,7 +20,7 @@ Things that follow from the documented design are not vulnerabilities: no authen
 
 ## Reporting
 
-Please report privately rather than in a public issue: contact the maintainer, [Mohamed Raslan](https://github.com/MohammedRaslan), through GitHub. Include the version (commit), steps to reproduce and what you expected to happen.
+Please report privately rather than in a public issue: use [**Report a vulnerability**](https://github.com/MohammedRaslan/sync-forge/security/advisories/new) under the repository's **Security** tab. Include the version (commit), steps to reproduce and what you expected to happen.
 
 ## Supported versions
 
