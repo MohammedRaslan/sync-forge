@@ -4,6 +4,9 @@ Build, run and verify data sync jobs between **PostgreSQL**, **MySQL**, **MongoD
 
 Syncforge runs on your machine. You point it at two databases (or a CSV file and a database), pick a table, tick the fields you need, decide how each one lands in the target, and run it. It can then check the result for you: it re-maps a sample of source rows and compares them field by field with what is in the target.
 
+> [!WARNING]
+> **Local-only tool, not for production.** Syncforge has no login and trusts everyone who can reach it. It is meant to run on your own machine, bound to `127.0.0.1`, for people who are already trusted with the databases it connects to. Do not expose it to a network, host it as a service, or reuse its code as a pattern for internet-facing applications. See [Security model](#security-model).
+
 ![Job detail with a reconciliation report](docs/images/job-detail.jpg)
 
 ## Why
@@ -205,6 +208,35 @@ Integration tests start PostgreSQL 16, MySQL 8.4, MongoDB 7 and the Cosmos DB em
 ## Upgrading
 
 Since PostgreSQL `timestamp` (without time zone) and `date` values are read as UTC, watermarks saved by an earlier version may be off by the machine's offset from UTC. Each incremental job (in the app and in exported scripts) therefore resumes up to 14 hours earlier once, re-reading a few rows rather than skipping any; writes are upserts, so that is harmless. `timestamp` values that an earlier version wrote into PostgreSQL on a machine outside UTC were stored in local time and shift to the UTC wall time on the next full run.
+
+## Security model
+
+Syncforge is a **local developer tool**. Its safety comes from where it runs, not from access control, so the points below hold only while it stays on your own machine.
+
+**What it assumes**
+
+- **Everyone who can reach the API is trusted.** There is no login, no user accounts and no permissions. The engine listens on `127.0.0.1` by default, and the Docker setup publishes it on loopback only.
+- **Job authors are trusted.** Expressions are JavaScript that runs in the engine's process (`node:vm` with a 50 ms limit per row); this stops mistakes, not attacks. SQL query sources are your own SQL, run inside a READ ONLY transaction.
+- **The people using it may already read and write the connected databases.** Syncforge acts with the credentials you give it.
+
+**What it protects**
+
+- Saved credentials are encrypted at rest (AES-256-GCM) and never returned by the API.
+- Identifiers and values are quoted or bound as parameters; uploaded CSV file names are checked, sizes are capped, and error messages never include cell values.
+- Workspace secrets, run history and uploaded files live under `workspace/.local/`, which is kept out of git and out of the Docker image, and a secret scan runs on every commit and push.
+
+**What it does not do**
+
+- No authentication, authorization, rate limiting or audit log.
+- No protection when it is reachable from other machines: anyone who can open the UI can read every connected database, write to targets and run code on the host.
+
+**So, please don't**
+
+- Change `HOST` or the published port to expose it beyond your machine, or put it behind a public reverse proxy.
+- Run it as a shared server or a hosted service.
+- Copy its endpoints, upload handling or expression runner into a production application as they are. They are written for the trusted, local setting above.
+
+Found a security problem? See [SECURITY.md](SECURITY.md).
 
 ## Know before you use it
 
