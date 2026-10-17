@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
-import type { DryRunReport, ReconcileReport, RowFailure, RunRecord } from '../api/types';
+import type { DryRunReport, ReconcileReport, RowFailure, RunRecord, RunSummary } from '../api/types';
 import { Conduit } from '../components/Conduit';
 import { ErrorNotice, Hint, Loading, StatusPill } from '../components/Feedback';
 import { Icon } from '../components/Icon';
@@ -16,7 +16,7 @@ export function JobDetailPage() {
   const navigate = useNavigate();
   const [activeRun, setActiveRun] = useState<RunRecord>();
   const [report, setReport] = useState<ReconcileReport>();
-  const [busy, setBusy] = useState<'start' | 'dry-run' | 'cancel' | 'reconcile' | 'export' | 'reset' | 'delete'>();
+  const [busy, setBusy] = useState<'start' | 'dry-run' | 'retry' | 'cancel' | 'reconcile' | 'export' | 'reset' | 'delete'>();
   const [actionError, setActionError] = useState<unknown>();
 
   const page = useAsync(async () => {
@@ -70,11 +70,15 @@ export function JobDetailPage() {
   const source = connections.get(job.source.connectionId);
   const target = connections.get(job.target.connectionId);
 
-  const start = (dryRun: boolean) =>
-    act(dryRun ? 'dry-run' : 'start', async () => {
-      setActiveRun(await api.jobs.start(job.id, { dryRun }));
+  // Every kind of run is followed the same way: it becomes the active run, which is polled while it runs.
+  const startRun = (kind: 'start' | 'dry-run' | 'retry', options: { dryRun?: boolean; retryOf?: string }) =>
+    act(kind, async () => {
+      setActiveRun(await api.jobs.start(job.id, options));
       void page.reload();
     });
+  const start = (dryRun: boolean) => startRun(dryRun ? 'dry-run' : 'start', { dryRun });
+  const retryFailedRows = (runId: string) => startRun('retry', { retryOf: runId });
+  const openRun = (runId: string) => void api.runs.get(runId).then(setActiveRun, setActionError);
   const cancel = () => act('cancel', async () => setActiveRun(await api.runs.cancel(activeRun!.id)));
   const reconcile = () => act('reconcile', async () => setReport(await api.jobs.reconcile(job.id)));
   const exportScript = () =>
@@ -213,7 +217,15 @@ export function JobDetailPage() {
         )}
       </dl>
 
-      {activeRun && <RunPanel run={activeRun} />}
+      {activeRun && (
+        <RunPanel
+          run={activeRun}
+          runs={runs}
+          onOpenRun={openRun}
+          onRetry={() => retryFailedRows(activeRun.id)}
+          retryBlocked={isRunning || runningId !== undefined || busy !== undefined}
+        />
+      )}
       {report && <ReconcilePanel report={report} />}
 
       <section className="panel" aria-labelledby="history-title">
@@ -237,13 +249,14 @@ export function JobDetailPage() {
                 {runs.map((run) => (
                   <tr key={run.id}>
                     <td>
-                      <button type="button" className="link-button" onClick={() => void api.runs.get(run.id).then(setActiveRun)}>
+                      <button type="button" className="link-button" onClick={() => openRun(run.id)}>
                         {formatDateTime(run.startedAt)}
                       </button>
                     </td>
                     <td>
                       <StatusPill status={run.status} />
                       {run.dryRun && <span className="tag">dry run</span>}
+                      {run.retryOf && <RetryOfTag retryOf={run.retryOf} runs={runs} onOpenRun={openRun} />}
                     </td>
                     <td>{formatDuration(run.startedAt, run.finishedAt)}</td>
                     <td className="num">{formatCount(run.stats.read)}</td>
@@ -262,7 +275,17 @@ export function JobDetailPage() {
   );
 }
 
-function RunPanel({ run }: { run: RunRecord }) {
+interface RunPanelProps {
+  run: RunRecord;
+  /** The job's run history, to date the run a retry run came from. */
+  runs: readonly RunSummary[];
+  onOpenRun: (runId: string) => void;
+  onRetry: () => void;
+  /** A run of the job is going or another action is starting. */
+  retryBlocked: boolean;
+}
+
+function RunPanel({ run, runs, onOpenRun, onRetry, retryBlocked }: RunPanelProps) {
   const kind = run.dryRun ? 'Dry run' : 'Run';
   const counters: Array<[string, number]> = [
     ['Read', run.stats.read],
@@ -275,6 +298,7 @@ function RunPanel({ run }: { run: RunRecord }) {
       <div className="panel-head">
         <h2 id="run-title">{run.status === 'running' ? `${kind} in progress` : `${kind} from ${formatRelative(run.startedAt)}`}</h2>
         <div className="panel-head-actions">
+          {run.retryOf && <RetryOfTag retryOf={run.retryOf} runs={runs} onOpenRun={onOpenRun} />}
           <StatusPill status={run.status} />
           <button
             type="button"
@@ -296,7 +320,15 @@ function RunPanel({ run }: { run: RunRecord }) {
         ))}
       </dl>
       {run.error && <ErrorNotice error={new Error(run.error)} />}
-      {run.failures && run.failures.length > 0 && <FailedRows run={run} failures={run.failures} />}
+      {run.failures && run.failures.length > 0 && (
+        <FailedRows
+          run={run}
+          failures={run.failures}
+          // Only a finished real run can be retried: a dry run wrote nothing, a running one is not done failing rows.
+          onRetry={run.status !== 'running' && !run.dryRun ? onRetry : undefined}
+          retryBlocked={retryBlocked}
+        />
+      )}
       <ol className="run-log">
         {run.log.map((entry, index) => (
           <li key={index} className={`log-${entry.level}`}>
@@ -306,6 +338,20 @@ function RunPanel({ run }: { run: RunRecord }) {
         ))}
       </ol>
     </section>
+  );
+}
+
+/** Marks a retry run; opens the run it retried when that run is still in the history. */
+function RetryOfTag({ retryOf, runs, onOpenRun }: { retryOf: string; runs: readonly RunSummary[]; onOpenRun: (runId: string) => void }) {
+  const original = runs.find((run) => run.id === retryOf);
+  if (!original) return <span className="tag">Retry</span>;
+  return (
+    <span className="tag">
+      Retry of{' '}
+      <button type="button" className="link-button" onClick={() => onOpenRun(original.id)} title="Open the run whose failed rows this run read again">
+        {formatDateTime(original.startedAt)}
+      </button>
+    </span>
   );
 }
 
@@ -363,9 +409,22 @@ function DryRunPlan({ plan }: { plan: DryRunReport }) {
   );
 }
 
-const STAGE_LABEL: Record<RowFailure['stage'], string> = { lookup: 'Lookup', map: 'Mapping', write: 'Writing' };
+const STAGE_LABEL: Record<RowFailure['stage'], string> = { read: 'Reading', lookup: 'Lookup', map: 'Mapping', write: 'Writing' };
 
-function FailedRows({ run, failures }: { run: RunRecord; failures: RowFailure[] }) {
+const NO_SOURCE_KEY_REASON =
+  "No source key was recorded for these rows: the job's key comes from an expression, a constant, a default, a lookup or a SQL query source, or the run is from an older version.";
+
+interface FailedRowsProps {
+  run: RunRecord;
+  failures: RowFailure[];
+  /** Offered for finished real runs only. */
+  onRetry?: () => void;
+  retryBlocked: boolean;
+}
+
+function FailedRows({ run, failures, onRetry, retryBlocked }: FailedRowsProps) {
+  const retryable = failures.filter((failure) => failure.sourceKey !== undefined).length;
+  const notRetryable = failures.length - retryable;
   return (
     <div className="failed-rows">
       <h3>Rows that could not be synced</h3>
@@ -374,7 +433,31 @@ function FailedRows({ run, failures }: { run: RunRecord; failures: RowFailure[] 
         written are updated, never duplicated.
         {run.mode === 'incremental' && !run.dryRun && ' These rows are behind the watermark now, so use Start over to read them again.'}
         {run.stats.skipped > failures.length && ` Showing the first ${formatCount(failures.length)} of ${formatCount(run.stats.skipped)}.`}
+        {onRetry && run.stats.skipped > failures.length && ' Rows beyond the list are not re-run; run the job again to cover them.'}
       </p>
+      {onRetry && (
+        <div className="failed-rows-retry">
+          <button
+            type="button"
+            className="btn"
+            onClick={onRetry}
+            disabled={retryable === 0 || retryBlocked}
+            title={retryable === 0 ? NO_SOURCE_KEY_REASON : undefined}
+          >
+            <Icon name="rewind" /> Re-run failed rows ({formatCount(retryable)})
+          </button>
+          {retryable > 0 && (
+            <p className="field-hint">
+              Reads only these rows from the source again and runs them through the job's current mappings. The watermark is not changed.
+            </p>
+          )}
+          {notRetryable > 0 && (
+            <p className="field-hint">
+              {formatCount(notRetryable)} of these rows can't be re-run (no source key was recorded).
+            </p>
+          )}
+        </div>
+      )}
       <div className="table-scroll">
         <table className="data-table">
           <thead>

@@ -12,6 +12,7 @@ import { DryRunWriter } from '../../src/sync/dry-run-writer';
 import { StoredWatermark } from '../../src/sync/watermark';
 import { TransformRegistry } from '../../src/transforms/transform.registry';
 import { Started, startMongo, startMysql, startPostgres } from './containers';
+import { runsHarness } from './runs-harness';
 
 /**
  * Whole jobs on the sandbox seed data: SyncService opens the pipeline, SyncRunner moves the rows,
@@ -435,6 +436,60 @@ describe('Row failures with the skip policy (PostgreSQL target)', () => {
     expect(failures).toEqual([]);
     const { rows } = await newcore.query('SELECT manager_id FROM public.staff WHERE id = 2');
     expect(rows[0].manager_id).toBe(9);
+  });
+});
+
+describe('Re-running the failed rows of a run (PostgreSQL to PostgreSQL)', () => {
+  const job = makeJob({
+    mode: 'incremental',
+    watermarkField: 'updated_at',
+    errorPolicy: 'skip',
+    batchSize: 4,
+    source: { connectionId: 'legacy', collection: 'public.retry_people' },
+    target: { connectionId: 'newcore', collection: 'public.retry_people', keyFields: ['id'] },
+    mappings: [
+      { from: 'person_id', to: 'id', transform: 'none' },
+      { from: 'name', to: 'name', transform: 'none' },
+    ],
+  });
+
+  beforeAll(async () => {
+    // People 4, 8 and 9 have no name, which the target refuses (NOT NULL).
+    await legacy.query('CREATE TABLE public.retry_people (person_id int PRIMARY KEY, name text, updated_at int NOT NULL)');
+    await legacy.query(
+      "INSERT INTO public.retry_people SELECT n, CASE WHEN n IN (4, 8, 9) THEN NULL ELSE 'Person ' || n END, n FROM generate_series(1, 12) AS n",
+    );
+    await newcore.query('CREATE TABLE public.retry_people (id int PRIMARY KEY, name text NOT NULL)');
+  });
+
+  it('reads and writes only the failed rows once the job is fixed, and leaves the watermark alone', async () => {
+    const { current, savedWatermarks, runToEnd } = runsHarness(sync, job);
+    const first = await runToEnd();
+    expect(first.stats).toMatchObject({ read: 12, written: 9, skipped: 3 });
+    expect(first.failures?.map((failure) => [failure.stage, failure.sourceKey])).toEqual([
+      ['write', { person_id: 4 }],
+      ['write', { person_id: 8 }],
+      ['write', { person_id: 9 }],
+    ]);
+    const watermarksBefore = [...savedWatermarks];
+    expect(watermarksBefore.at(-1)).toEqual({ type: 'number', value: 12 });
+
+    // Person 9 is deleted at the source; the others get a fallback name.
+    await legacy.query('DELETE FROM public.retry_people WHERE person_id = 9');
+    current.job = { ...job, mappings: [job.mappings[0], { from: 'name', to: 'name', transform: 'default', argument: 'Unknown' }] };
+    const retry = await runToEnd({ retryOf: first.id });
+
+    expect(retry).toMatchObject({ status: 'succeeded', retryOf: first.id, watermarkFrom: null, watermarkTo: null });
+    expect(retry.stats).toMatchObject({ read: 2, written: 2, skipped: 0 });
+    expect(retry.failures).toEqual([
+      { row: 3, key: '9', stage: 'read', reason: 'No longer in the source', sourceKey: { person_id: 9 } },
+    ]);
+    expect(savedWatermarks).toEqual(watermarksBefore);
+    const { rows } = await newcore.query('SELECT id, name FROM public.retry_people WHERE id IN (4, 8, 9) ORDER BY id');
+    expect(rows).toEqual([
+      { id: 4, name: 'Unknown' },
+      { id: 8, name: 'Unknown' },
+    ]);
   });
 });
 

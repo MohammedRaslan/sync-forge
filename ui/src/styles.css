@@ -1559,6 +1559,17 @@ input[type='radio'] {
   font-size: 1rem;
 }
 
+/* The button keeps its own width; grid items would otherwise stretch it across the panel. */
+.failed-rows-retry {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.failed-rows-retry .field-hint {
+  margin: 0;
+}
+
 .row-error td {
   background: var(--danger-tint-row);
   color: var(--danger-ink);

@@ -13,6 +13,7 @@ import { SyncRunner } from '../../src/sync/sync-runner';
 import { SyncService } from '../../src/sync/sync.service';
 import { TransformRegistry } from '../../src/transforms/transform.registry';
 import { Started, startMongo, startMysql, startPostgres } from './containers';
+import { runsHarness } from './runs-harness';
 
 /**
  * CSV files as a source and as a lookup, written into real databases. Every CSV cell is text: Postgres and
@@ -140,6 +141,37 @@ describe('CSV to PostgreSQL with typed columns', () => {
     await run(job);
     const { rows } = await pg.query('SELECT count(*)::int AS n FROM public.items');
     expect(rows[0].n).toBe(4);
+  });
+});
+
+describe('CSV source: re-running failed rows', () => {
+  const job = makeJob({
+    errorPolicy: 'skip',
+    source: { connectionId: 'files', collection: 'items.csv' },
+    target: { connectionId: 'pg', collection: 'public.strict_items', keyFields: ['id'] },
+    mappings: [
+      { from: 'id', to: 'id', transform: 'none' },
+      { from: 'note', to: 'note', transform: 'none' },
+    ],
+  });
+
+  beforeAll(async () => {
+    // Row 2 of items.csv has an unquoted empty note (null), which this table refuses.
+    await pg.query('CREATE TABLE public.strict_items (id int PRIMARY KEY, note text NOT NULL)');
+  });
+
+  it('fetches the failed row from the file by its key and writes it once the job is fixed', async () => {
+    const { current, runToEnd } = runsHarness(sync, job);
+    const first = await runToEnd();
+    expect(first.stats).toMatchObject({ read: 4, written: 3, skipped: 1 });
+    expect(first.failures?.map((failure) => failure.sourceKey)).toEqual([{ id: '2' }]);
+
+    current.job = { ...job, mappings: [job.mappings[0], { from: 'note', to: 'note', transform: 'default', argument: '-' }] };
+    const retry = await runToEnd({ retryOf: first.id });
+
+    expect(retry).toMatchObject({ status: 'succeeded', stats: { read: 1, written: 1, skipped: 0 }, failures: [] });
+    const { rows } = await pg.query('SELECT note FROM public.strict_items WHERE id = 2');
+    expect(rows).toEqual([{ note: '-' }]);
   });
 });
 

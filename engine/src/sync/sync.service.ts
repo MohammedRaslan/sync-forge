@@ -315,6 +315,14 @@ function assertSourceCompatible(job: Pick<JobInput, 'source' | 'mode' | 'waterma
   }
 }
 
+/** A retry fetches source rows by their source key: relational sources match columns, not nested paths. */
+export function assertSourceKeyReadable(fields: readonly string[], source: ConnectionView): void {
+  const nested = fields.find((field) => field.includes('.'));
+  if (nested && SQL_KINDS.has(source.kind)) {
+    throw new ValidationError(`Failed rows can't be re-run: ${KIND_NAME[source.kind]} rows are fetched by column, and the key comes from "${nested}"`);
+  }
+}
+
 /** Lookup rules that depend on the lookup database. */
 function assertLookupsCompatible(lookups: ReadonlyArray<{ spec: Lookup; view: ConnectionView }>): void {
   for (const { spec, view } of lookups) {

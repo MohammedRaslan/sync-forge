@@ -7,7 +7,9 @@ import { ReconcilesService } from './reconciles.service';
 import { RunsService } from './runs.service';
 import { SyncService } from './sync.service';
 
-const startRunSchema = z.object({ dryRun: z.boolean().optional() }).default({});
+const startRunSchema = z
+  .object({ dryRun: z.boolean().optional(), retryOf: z.string().trim().min(1).max(100).optional() })
+  .default({});
 
 @Controller('jobs')
 export class SyncController {
@@ -32,7 +34,10 @@ export class SyncController {
     return this.sync.previewSource(input);
   }
 
-  /** Body `{ "dryRun": true }` reads, maps and compares without writing. */
+  /**
+   * Body `{ "dryRun": true }` reads, maps and compares without writing; `{ "retryOf": runId }` re-runs that run's
+   * failed rows, read again from the source by their keys.
+   */
   @Post(':id/runs')
   @HttpCode(202)
   start(@Param('id') id: string, @Body(new ZodValidationPipe(startRunSchema)) body: z.infer<typeof startRunSchema>) {

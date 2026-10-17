@@ -17,6 +17,11 @@ export interface RunRecord {
   mode: 'full' | 'incremental';
   /** A dry run reads, maps and compares, but never writes or moves the watermark. Missing on older runs. */
   dryRun?: boolean;
+  /**
+   * The run whose failed rows this run read again by their source keys. A retry never reads or moves the
+   * watermark, and does not count as the job's latest run in overviews. Missing on other runs.
+   */
+  retryOf?: string;
   status: RunStatus;
   startedAt: string;
   finishedAt: string | null;

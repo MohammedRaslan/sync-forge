@@ -132,6 +132,8 @@ export interface RunSummary {
   mode: 'full' | 'incremental';
   /** Read, mapped and compared, but nothing written. */
   dryRun?: boolean;
+  /** The run whose failed rows this run read again. Never moves the watermark; not the job's latest run in `/runs/latest`. */
+  retryOf?: string;
   status: RunStatus;
   startedAt: string;
   finishedAt: string | null;
@@ -143,11 +145,15 @@ export interface RunSummary {
 
 /** A row a run gave up on (with the "skip" error policy). */
 export interface RowFailure {
+  /** Position in the run's read order; for `read` failures, the key's place in the keys a retry asked for. */
   row: number;
   key: string | null;
-  stage: 'lookup' | 'map' | 'write';
+  /** `read`: a retry asked for the row by its source key and the source no longer has it. */
+  stage: 'read' | 'lookup' | 'map' | 'write';
   reason: string;
   values?: Row;
+  /** The source row's key values, by source field. Only failures with one can be re-run (`retryOf`). */
+  sourceKey?: Record<string, string | number>;
 }
 
 export interface RunRecord extends RunSummary {

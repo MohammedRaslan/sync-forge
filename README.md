@@ -133,6 +133,8 @@ Run it incrementally on `updated_at`. `shop.order_lines` (2 lines per legacy ord
 - *Stop the run* at the first failing row.
 - *Skip, retry, and list it.* A failed batch write is repeated row by row, so the other rows of the batch are still written. Rows that failed to write get one more try at the end of the run, which fixes order problems such as a foreign key to a row from a later batch. Whatever still fails is listed with the run: row number, key, step, reason, and the values it tried to write.
 
+**Re-running failed rows.** Fix the cause (the data, the target, or the job's mappings), then re-run only the rows a run listed (`POST /api/jobs/:id/runs` with `{ "retryOf": "<run id>" }`). Each failed row is kept with its *source key*: the source values its target key is mapped from. The retry fetches exactly those rows from the source by that key and puts them through the normal run (lookups, the job's current mappings, the error policy), so nothing else is re-read. It never reads or moves the watermark, rows it still cannot sync are listed again (so a retry can be retried), and rows the source no longer has are listed as *No longer in the source*. The job's conditions are not re-applied. Overviews keep showing the run that was retried as the job's latest run. Not available when rows cannot be fetched by key: SQL query sources, a key set by an expression, a constant or a default, a key from a lookup, key values that are not text or numbers (a MongoDB `ObjectId` or a date), rows listed by an older version, and failed rows beyond the first 500 a run keeps. On the job page, the failed rows of a finished run have a **Re-run failed rows** button, and retry runs are tagged *Retry of* the run they came from.
+
 **How each target is written.**
 
 | Target | Behaviour |
@@ -201,7 +203,7 @@ npm run test:integration   # connectors against real databases, needs Docker
 
 Both run in the `Europe/Athens` time zone, so date handling that depends on the machine's zone fails everywhere, not only abroad.
 
-Unit tests cover value normalization, CSV parsing, path handling, every transform (including expression timeouts), SQL generation, schema inference, and the run loop (batching, de-duplication, skip policy, watermark checkpoints, cancellation).
+Unit tests cover value normalization, CSV parsing, path handling, every transform (including expression timeouts), SQL generation, schema inference, and the run loop (batching, de-duplication, skip policy, watermark checkpoints, cancellation, re-running failed rows).
 
 Integration tests start PostgreSQL 16, MySQL 8.4, MongoDB 7 and the Cosmos DB emulator in throwaway containers (Testcontainers) and run every connector through the same contract, plus whole jobs on the sandbox data. The first run pulls the images, which takes a few minutes; later runs take seconds. The Linux "vnext" Cosmos DB emulator is used because it runs on both Apple Silicon and x64.
 

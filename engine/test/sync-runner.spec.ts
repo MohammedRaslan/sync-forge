@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { DataReader, DataWriter, ReadRequest, Row } from '../src/connectors/connector.types';
 import { Job } from '../src/jobs/job.model';
+import { KEYS_PER_QUERY } from '../src/sync/key-lookup';
+import { KeyedRowsReader, MissingKey } from '../src/sync/keyed-rows-reader';
 import { LookupEnricher } from '../src/sync/lookup-enricher';
 import { RowMapper } from '../src/sync/row-mapper';
+import { SourceKey } from '../src/sync/source-key';
 import { RowFailure, RunCancelledError, RunHooks, SyncRunner, dedupeByKey } from '../src/sync/sync-runner';
 import { StoredWatermark } from '../src/sync/watermark';
 import { TransformRegistry } from '../src/transforms/transform.registry';
@@ -95,7 +98,8 @@ describe('SyncRunner', () => {
     expect(stats.skipped).toBe(2);
     expect(writer.written).toEqual([{ id: 3, quantity: 1 }]);
     expect(failures).toEqual([
-      { row: 1, key: null, stage: 'map', reason: '"quantity": "oops" is not a number' },
+      { row: 1, key: null, stage: 'map', reason: '"quantity": "oops" is not a number', sourceKey: { id: 1 } },
+      // No source key: an empty value can't be fetched by key.
       { row: 2, key: null, stage: 'map', reason: 'key field "id" is empty' },
     ]);
   });
@@ -169,7 +173,9 @@ describe('SyncRunner write failures', () => {
 
     expect(stats).toEqual({ read: 4, written: 3, skipped: 1, batches: 2 });
     expect(writer.written.map((row) => row.id)).toEqual([1, 3, 4]);
-    expect(failures).toEqual([{ row: 2, key: '2', stage: 'write', reason: duplicate, values: { id: 2, quantity: 2 } }]);
+    expect(failures).toEqual([
+      { row: 2, key: '2', stage: 'write', reason: duplicate, values: { id: 2, quantity: 2 }, sourceKey: { id: 2 } },
+    ]);
     expect(logs).toContain(`Row 2 (2): ${duplicate}. It will be retried once at the end.`);
     expect(logs).toContain('1 of 1 rows still could not be written; they are listed with the run');
   });
@@ -230,7 +236,9 @@ describe('SyncRunner with lookups', () => {
     expect(stats).toMatchObject({ read: 2, written: 1, skipped: 1 });
     expect(writer.written).toEqual([{ id: 1, email: 'a@x.io' }]);
     expect(logs).toContain('Row 2: no customer found where ref = "C2"');
-    expect(failures).toEqual([{ row: 2, key: null, stage: 'lookup', reason: 'no customer found where ref = "C2"' }]);
+    expect(failures).toEqual([
+      { row: 2, key: null, stage: 'lookup', reason: 'no customer found where ref = "C2"', sourceKey: { id: 2 } },
+    ]);
   });
 
   it('passes a query source to the reader', async () => {
@@ -238,6 +246,86 @@ describe('SyncRunner with lookups', () => {
     const { reader, run } = setup(makeJob({ source }), [[]]);
     await run();
     expect(reader.requests[0].query).toBe('SELECT 1 AS id');
+  });
+});
+
+describe('SyncRunner reading failed rows again by key', () => {
+  /** Answers key lookups like a connector's findByKeys, and remembers the keys of each call. */
+  class MemoryKeySource {
+    calls: Row[][] = [];
+    constructor(private readonly rows: Row[]) {}
+    async findByKeys(_collection: string, fields: string[], keys: Row[]) {
+      this.calls.push(keys);
+      return this.rows.filter((row) => keys.some((key) => fields.every((field) => String(key[field]) === String(row[field]))));
+    }
+  }
+
+  const job = makeJob({
+    errorPolicy: 'skip',
+    mappings: [
+      { from: 'code', to: 'id', transform: 'none' },
+      { from: 'qty', to: 'quantity', transform: 'number' },
+    ],
+  });
+
+  async function retry(rows: Row[], keys: SourceKey[]) {
+    const source = new MemoryKeySource(rows);
+    const missing: MissingKey[] = [];
+    const reader = new KeyedRowsReader(source, ['code'], keys, (found) => missing.push(...found));
+    const writer = new MemoryWriter();
+    const failures: RowFailure[] = [];
+    const batchSizes: number[] = [];
+    const { stats } = await new SyncRunner().run({
+      job,
+      source: reader,
+      target: writer,
+      mapper: RowMapper.compile(job.mappings, new TransformRegistry()),
+      enricher: LookupEnricher.none,
+      from: null,
+      signal: new AbortController().signal,
+      hooks: {
+        log: () => undefined,
+        onBatchWritten: async (batchStats) => void batchSizes.push(batchStats.read),
+        onRowFailed: (failure) => failures.push(failure),
+      },
+    });
+    return { stats, source, writer, failures, missing, batchSizes };
+  }
+
+  const rows = [
+    { code: 'A', qty: '1' },
+    { code: 'B', qty: 'oops' },
+    { code: 'C', qty: '3' },
+  ];
+
+  it('writes only the rows of the given keys, through the normal run loop', async () => {
+    const { stats, writer, failures, missing } = await retry(rows, [{ code: 'A' }, { code: 'C' }]);
+    expect(stats).toEqual({ read: 2, written: 2, skipped: 0, batches: 1 });
+    expect(writer.written).toEqual([{ id: 'A', quantity: 1 }, { id: 'C', quantity: 3 }]);
+    expect(failures).toEqual([]);
+    expect(missing).toEqual([]);
+  });
+
+  it('lists a row that still fails with its source key again, so it can be retried again', async () => {
+    const { stats, failures } = await retry(rows, [{ code: 'A' }, { code: 'B' }]);
+    expect(stats).toMatchObject({ read: 2, written: 1, skipped: 1 });
+    expect(failures).toEqual([{ row: 2, key: null, stage: 'map', reason: '"quantity": "oops" is not a number', sourceKey: { code: 'B' } }]);
+  });
+
+  it('reports keys the source no longer has, with their place in the requested keys', async () => {
+    const { stats, missing } = await retry(rows, [{ code: 'Z' }, { code: 'A' }]);
+    expect(stats).toMatchObject({ read: 1, written: 1, skipped: 0 });
+    expect(missing).toEqual([{ position: 1, key: { code: 'Z' } }]);
+  });
+
+  it('fetches keys in chunks and hands the rows out in batches of the job size', async () => {
+    const many = Array.from({ length: KEYS_PER_QUERY + 3 }, (_, index) => ({ code: `K${index}`, qty: '1' }));
+    const { stats, source, batchSizes } = await retry(many, many.map(({ code }) => ({ code })));
+    expect(source.calls.map((keys) => keys.length)).toEqual([KEYS_PER_QUERY, 3]);
+    expect(stats).toMatchObject({ read: KEYS_PER_QUERY + 3, written: KEYS_PER_QUERY + 3 });
+    // Two rows per batch (the job's batch size), counted cumulatively.
+    expect(batchSizes.slice(0, 2)).toEqual([2, 4]);
+    expect(batchSizes.at(-1)).toBe(KEYS_PER_QUERY + 3);
   });
 });
 

@@ -129,7 +129,9 @@ export const api = {
     watermark: (id: string) => request<{ watermark: Watermark | null }>('GET', `/jobs/${enc(id)}/watermark`),
     resetWatermark: (id: string) => request<void>('DELETE', `/jobs/${enc(id)}/watermark`),
     runs: (id: string) => request<RunSummary[]>('GET', `/jobs/${enc(id)}/runs`),
-    start: (id: string, options: { dryRun?: boolean } = {}) => request<RunRecord>('POST', `/jobs/${enc(id)}/runs`, options),
+    /** `retryOf`: re-run the failed rows of that earlier run of the job (not combinable with `dryRun`). */
+    start: (id: string, options: { dryRun?: boolean; retryOf?: string } = {}) =>
+      request<RunRecord>('POST', `/jobs/${enc(id)}/runs`, options),
     reconcile: (id: string) => request<ReconcileReport>('POST', `/jobs/${enc(id)}/reconcile`),
   },
   reconciles: {

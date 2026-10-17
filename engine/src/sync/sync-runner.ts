@@ -7,6 +7,7 @@ import { Job, sourceScope } from '../jobs/job.model';
 import { LookupEnricher } from './lookup-enricher';
 import { displayKey } from './row-diff';
 import { RowMapper } from './row-mapper';
+import { SourceKey, sourceKeyFields, sourceKeyOf } from './source-key';
 import { LEGACY_DATE_WATERMARK_SHIFT_HOURS, StoredWatermark, toStoredWatermark, upgradedWatermark } from './watermark';
 
 export interface RunStats {
@@ -20,14 +21,20 @@ export type LogLevel = 'info' | 'warn' | 'error';
 
 /** A row the run could not sync, kept so people can see which rows and why. */
 export interface RowFailure {
-  /** Position in this run's read order, starting at 1. */
+  /** Position in this run's read order, starting at 1. For `read` failures: the key's place in the keys a retry asked for. */
   row: number;
   /** Key values, once the row was mapped far enough to have them. */
   key: string | null;
-  stage: 'lookup' | 'map' | 'write';
+  /** `read`: a retry asked for this row by its source key, and the source no longer has it. */
+  stage: 'read' | 'lookup' | 'map' | 'write';
   reason: string;
   /** The row as it was to be written (write failures only). */
   values?: Row;
+  /**
+   * The source row's key values, so a retry can read the row again (see `sourceKeyFields`). Missing when the job's
+   * key cannot be traced to source fields, when a value is empty or not text or a number, and on older runs.
+   */
+  sourceKey?: SourceKey;
 }
 
 export interface RunHooks {
@@ -41,9 +48,12 @@ export interface RunHooks {
   onRowFailed(failure: RowFailure): void;
 }
 
+/** Where a run reads rows from: the job's source connector, or a `KeyedRowsReader` when failed rows are retried. */
+export type RowSource = Pick<DataReader, 'readBatches'>;
+
 export interface RunRequest {
   job: Job;
-  source: DataReader;
+  source: RowSource;
   target: DataWriter;
   mapper: RowMapper;
   enricher: LookupEnricher;
@@ -80,7 +90,9 @@ export class SyncRunner {
     let watermark = startFrom;
     let loggedErrors = 0;
     /** Rows whose write failed; each gets one more try after the last batch. */
-    const retryLater: Array<{ number: number; row: Row }> = [];
+    const retryLater: Array<{ number: number; row: Row; sourceKey?: SourceKey }> = [];
+    const keyOfSource = sourceKeyFields(job);
+    const sourceKeyFor = (row: Row): SourceKey | undefined => ('fields' in keyOfSource ? sourceKeyOf(row, keyOfSource.fields) : undefined);
 
     const warn = (message: string) => {
       if (loggedErrors < MAX_LOGGED_ROW_ERRORS) hooks.log('warn', message);
@@ -112,21 +124,24 @@ export class SyncRunner {
       stats.read += batch.length;
 
       const mapped: Row[] = [];
-      const rowNumbers = new Map<Row, number>();
+      /** Where each mapped row came from, for failure reports. */
+      const origins = new Map<Row, { number: number; sourceKey?: SourceKey }>();
       (await enricher.enrich(batch)).forEach(({ row, error }, index) => {
         const number = firstRowNumber + index;
         const stage = error ? 'lookup' : 'map';
+        // From the row as read: the enricher's copy carries lookup results too.
+        const sourceKey = sourceKeyFor(batch[index]);
         try {
           if (error) throw new Error(error);
           const result = mapRow(row, mapper, keyFields);
-          rowNumbers.set(result, number);
+          origins.set(result, { number, sourceKey });
           mapped.push(result);
         } catch (caught) {
           const reason = errorMessage(caught);
           if (!skipBadRows) throw new Error(`Row ${number}: ${reason}`);
           stats.skipped += 1;
           warn(`Row ${number}: ${reason}`);
-          hooks.onRowFailed({ row: number, key: null, stage, reason });
+          hooks.onRowFailed({ row: number, key: null, stage, reason, ...(sourceKey && { sourceKey }) });
         }
       });
 
@@ -135,10 +150,10 @@ export class SyncRunner {
         const failed = await upsertIsolatingFailures(target, job.target.collection, rows, keyFields, signal);
         stats.written += rows.length - failed.length;
         for (const { row, reason } of failed) {
-          const number = rowNumbers.get(row)!;
+          const { number, sourceKey } = origins.get(row)!;
           stats.skipped += 1;
           warn(`Row ${number} (${displayKey(row, keyFields)}): ${reason}. It will be retried once at the end.`);
-          retryLater.push({ number, row });
+          retryLater.push({ number, row, sourceKey });
         }
       } else {
         if (rows.length > 0) await target.upsert(job.target.collection, rows, keyFields);
@@ -158,7 +173,7 @@ export class SyncRunner {
       // A second chance fixes failures caused by order, e.g. a foreign key to a row from a later batch.
       hooks.log('info', `Retrying ${retryLater.length} rows that could not be written`);
       let stillFailing = 0;
-      for (const { number, row } of retryLater) {
+      for (const { number, row, sourceKey } of retryLater) {
         throwIfCancelled(signal);
         try {
           await target.upsert(job.target.collection, [row], keyFields);
@@ -172,6 +187,7 @@ export class SyncRunner {
             stage: 'write',
             reason: errorMessage(error),
             values: normalizeRecord(row),
+            ...(sourceKey && { sourceKey }),
           });
         }
       }
