@@ -6,6 +6,7 @@ export const KIND_LABEL: Record<ConnectionKind, string> = {
   mongo: 'MongoDB',
   cosmos: 'Cosmos DB',
   csv: 'CSV files',
+  http: 'HTTP API',
 };
 
 const numberFormat = new Intl.NumberFormat();

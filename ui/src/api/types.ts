@@ -1,6 +1,6 @@
 /** Shapes returned by the engine API. Kept in sync by hand with engine/src (see docs/ARCHITECTURE.md). */
 
-export type ConnectionKind = 'postgres' | 'mysql' | 'mongo' | 'cosmos' | 'csv';
+export type ConnectionKind = 'postgres' | 'mysql' | 'mongo' | 'cosmos' | 'csv' | 'http';
 
 export interface Connection {
   id: string;
@@ -18,7 +18,64 @@ export type ConnectionConfig =
   | { kind: 'mysql'; host: string; port: number; database: string; user: string; password: string; ssl: 'disable' | 'require' | 'verify-full' }
   | { kind: 'mongo'; uri: string; database: string }
   | { kind: 'cosmos'; endpoint: string; key: string; database: string; allowSelfSignedCert: boolean }
-  | { kind: 'csv'; delimiter: 'auto' | ',' | ';' | '\t' };
+  | { kind: 'csv'; delimiter: 'auto' | ',' | ';' | '\t' }
+  | HttpConfig;
+
+/** A name and a value: a request header, a query parameter, or a response header shown back. */
+export interface HeaderPair {
+  name: string;
+  value: string;
+}
+
+/** How requests to an HTTP API authenticate. Every type except `none` sends the connection's one `secret`. */
+export type HttpAuth =
+  | { type: 'none' }
+  | { type: 'bearer' }
+  | { type: 'basic'; username: string }
+  | { type: 'apiKeyHeader'; header: string }
+  | { type: 'apiKeyQuery'; param: string };
+
+/** How an endpoint reaches its next page. */
+export type HttpPagination =
+  | { type: 'none' }
+  | { type: 'page'; pageParam: string; firstPage: number; size?: { param: string; value: number } }
+  | { type: 'offset'; offsetParam: string; limitParam: string; limit: number }
+  | { type: 'cursor'; cursorPath: string; cursorParam: string }
+  | { type: 'nextUrl'; nextUrlPath: string }
+  | { type: 'linkHeader'; header: string };
+
+/** One GET endpoint of an API; jobs and lookups use its name as their collection. */
+export interface HttpEndpoint {
+  name: string;
+  path: string;
+  query: HeaderPair[];
+  /** `$` for a body that is the array itself, otherwise a dotted path such as data.items. */
+  dataPath: string;
+  pagination: HttpPagination;
+}
+
+/** A REST API read with GET. Headers and query parameters are settings, not secrets. */
+export interface HttpConfig {
+  kind: 'http';
+  baseUrl: string;
+  auth: HttpAuth;
+  secret: string;
+  headers: HeaderPair[];
+  query: HeaderPair[];
+  minIntervalSeconds: number;
+  endpoints: HttpEndpoint[];
+}
+
+/** What a trial request to one HTTP endpoint found. */
+export interface HttpProbeResult {
+  status: number;
+  latencyMs: number;
+  bytes: number;
+  contentType: string | null;
+  rateLimit: HeaderPair[];
+  arrays: Array<{ path: string; items: number; keys: string[] }>;
+  nextPage: string | null;
+}
 
 export interface ConnectionInput {
   name: string;
@@ -39,11 +96,18 @@ export interface CsvFileList {
   files: CsvFileInfo[];
 }
 
-export type ConnectionTestResult = { ok: true; latencyMs: number } | { ok: false; message: string };
+export type ConnectionTestResult =
+  | {
+      ok: true;
+      latencyMs: number;
+      /** HTTP APIs: rate-limit headers of the test response. */
+      rateLimit?: HeaderPair[];
+    }
+  | { ok: false; message: string };
 
 export interface CollectionInfo {
   name: string;
-  kind: 'table' | 'view' | 'collection' | 'container' | 'file';
+  kind: 'table' | 'view' | 'collection' | 'container' | 'file' | 'endpoint';
 }
 
 export interface FieldInfo {
@@ -228,6 +292,8 @@ export interface Settings {
   defaultBatchSize: number;
   /** A CSV used as a lookup is held in memory, so this also bounds memory. */
   csvMaxUploadMb: number;
+  /** A lookup on an HTTP endpoint holds every page in memory, so this also bounds memory. */
+  httpMaxResponseMb: number;
 }
 
 export interface SettingsView {

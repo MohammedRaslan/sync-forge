@@ -4,7 +4,7 @@ import { getPath } from '../common/paths';
 import { keyString, normalizeRecord, normalizeValue } from '../common/values';
 import { Connector, ReadRequest, Row } from '../connectors/connector.types';
 import { CSV_FULL_MODE_ONLY } from '../connectors/csv/csv-format';
-import { ConnectionView } from '../connections/connection.model';
+import { ConnectionView, HTTP_FULL_MODE_ONLY } from '../connections/connection.model';
 import { ConnectionsService } from '../connections/connections.service';
 import { Job, JobInput, Lookup, SourcePreviewInput, sourceScope } from '../jobs/job.model';
 import { TransformRegistry } from '../transforms/transform.registry';
@@ -295,14 +295,29 @@ function asAppError(error: unknown): Error {
 
 /** Relational databases: they take SQL query sources and address columns, not nested paths. */
 const SQL_KINDS = new Set<ConnectionView['kind']>(['postgres', 'mysql']);
-const KIND_NAME: Record<ConnectionView['kind'], string> = { postgres: 'Postgres', mysql: 'MySQL', mongo: 'MongoDB', cosmos: 'Cosmos DB', csv: 'CSV' };
+const KIND_NAME: Record<ConnectionView['kind'], string> = {
+  postgres: 'Postgres',
+  mysql: 'MySQL',
+  mongo: 'MongoDB',
+  cosmos: 'Cosmos DB',
+  csv: 'CSV',
+  http: 'HTTP API',
+};
+/** Kinds that are read but never written, with why a job cannot target them. */
+const READ_ONLY_KINDS: Partial<Record<ConnectionView['kind'], string>> = {
+  csv: 'CSV connections can be a source or a lookup, not a target, for now',
+  http: 'HTTP API connections can be a source or a lookup, not a target',
+};
+/** Kinds whose sources have no watermark to rely on, with why they run in full mode only. */
+const FULL_MODE_ONLY: Partial<Record<ConnectionView['kind'], string>> = { csv: CSV_FULL_MODE_ONLY, http: HTTP_FULL_MODE_ONLY };
 
 /** Source rules that depend on the source database. */
 function assertSourceCompatible(job: Pick<JobInput, 'source' | 'mode' | 'watermarkField'>, source: ConnectionView): void {
   if (job.source.query !== undefined && !SQL_KINDS.has(source.kind)) {
     throw new ValidationError('Custom SQL queries are only supported for PostgreSQL and MySQL sources');
   }
-  if (source.kind === 'csv' && job.mode === 'incremental') throw new ValidationError(CSV_FULL_MODE_ONLY);
+  const fullModeOnly = FULL_MODE_ONLY[source.kind];
+  if (fullModeOnly && job.mode === 'incremental') throw new ValidationError(fullModeOnly);
   if (source.kind === 'mongo' && job.source.filters?.some((filter) => filter.field === '_id')) {
     throw new ValidationError('Conditions on _id are not supported: _id is an ObjectId and would never equal a text value');
   }
@@ -345,7 +360,8 @@ function assertCompatible(
   if (source.id === target.id && job.source.collection === job.target.collection) {
     throw new ValidationError('Source and target are the same collection');
   }
-  if (target.kind === 'csv') throw new ValidationError('CSV connections can be a source or a lookup, not a target, for now');
+  const readOnly = READ_ONLY_KINDS[target.kind];
+  if (readOnly) throw new ValidationError(readOnly);
   if (SQL_KINDS.has(target.kind)) {
     const nested = job.mappings.find((mapping) => mapping.to.includes('.'));
     if (nested) throw new ValidationError(`${KIND_NAME[target.kind]} targets need plain column names, got "${nested.to}"`);

@@ -4,11 +4,20 @@ import { ValidationError } from '../common/errors';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { ConnectionsService } from './connections.service';
-import { ConnectionInput, connectionConfigSchema, connectionInputSchema } from './connection.model';
+import { ConnectionInput, connectionConfigSchema, connectionInputSchema, httpEndpointSchema, httpProbeConfigSchema } from './connection.model';
 
 const testRequestSchema = z.object({
   config: connectionConfigSchema,
   connectionId: z.string().optional(),
+});
+
+/** Connection ids are generated slugs; the limit only keeps a stray value from reaching the store. */
+const connectionIdSchema = z.string().trim().min(1).max(200);
+
+const httpProbeRequestSchema = z.object({
+  config: httpProbeConfigSchema,
+  endpoint: httpEndpointSchema,
+  connectionId: connectionIdSchema.optional(),
 });
 
 const describeQuerySchema = z.object({ query: z.string().trim().min(1, 'Write a query').max(20_000) });
@@ -37,6 +46,13 @@ export class ConnectionsController {
   @HttpCode(200)
   test(@Body(new ZodValidationPipe(testRequestSchema)) body: z.infer<typeof testRequestSchema>) {
     return this.connections.test(body.config, body.connectionId);
+  }
+
+  /** One trial request to an endpoint of unsaved HTTP API settings. Before the `:id` routes, so "http" is never read as an id. */
+  @Post('http/probe')
+  @HttpCode(200)
+  probeHttp(@Body(new ZodValidationPipe(httpProbeRequestSchema)) body: z.infer<typeof httpProbeRequestSchema>) {
+    return this.connections.probeHttpEndpoint(body.config, body.endpoint, body.connectionId);
   }
 
   @Get(':id')

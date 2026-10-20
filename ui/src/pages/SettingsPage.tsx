@@ -53,6 +53,19 @@ const SECTIONS: readonly SettingsSection[] = [
       },
     ],
   },
+  {
+    title: 'HTTP API',
+    fields: [
+      {
+        key: 'httpMaxResponseMb',
+        label: 'Response size limit',
+        hint: 'Largest response read from an HTTP API, per page. A lookup on an endpoint holds all its pages in memory, so keep this within what this machine can spare.',
+        min: 1,
+        max: 512,
+        unit: 'MB',
+      },
+    ],
+  },
 ];
 
 const KEYS = SECTIONS.flatMap((section) => section.fields.map((field) => field.key));

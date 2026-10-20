@@ -3,7 +3,9 @@ import { api } from '../api/client';
 import type { Connection, ConnectionConfig, ConnectionKind, ConnectionTestResult } from '../api/types';
 import { ErrorNotice, Hint } from '../components/Feedback';
 import { FormField } from '../components/FormField';
+import { HeaderList } from '../components/HeaderList';
 import { KIND_LABEL } from '../lib/format';
+import { HttpConnectionFields, type HttpSettings, httpNumberProblem, initialHttpSettings } from './HttpConnectionFields';
 
 interface FormState {
   name: string;
@@ -19,11 +21,12 @@ interface FormState {
   key: string;
   allowSelfSignedCert: boolean;
   delimiter: CsvDelimiter;
+  http: HttpSettings;
 }
 
 type CsvDelimiter = Extract<ConnectionConfig, { kind: 'csv' }>['delimiter'];
 
-const KINDS: ConnectionKind[] = ['postgres', 'mysql', 'mongo', 'cosmos', 'csv'];
+const KINDS: ConnectionKind[] = ['postgres', 'mysql', 'mongo', 'cosmos', 'csv', 'http'];
 
 const DELIMITERS: { value: CsvDelimiter; label: string }[] = [
   { value: 'auto', label: 'Auto-detect' },
@@ -59,6 +62,7 @@ function initialState(connection?: Connection): FormState {
     key: '',
     allowSelfSignedCert: Boolean(s.allowSelfSignedCert),
     delimiter: delimiterOf(s.delimiter),
+    http: initialHttpSettings(connection),
   };
 }
 
@@ -87,6 +91,8 @@ function toConfig(state: FormState): ConnectionConfig {
       };
     case 'csv':
       return { kind: 'csv', delimiter: state.delimiter };
+    case 'http':
+      return { kind: 'http', ...state.http };
   }
 }
 
@@ -112,8 +118,11 @@ export function ConnectionForm({ connection, onSaved }: { connection?: Connectio
     });
 
   const test = async () => {
+    // A blank number field would be sent as null; say which one instead of a schema error.
+    const problem = state.kind === 'http' ? httpNumberProblem(state.http) : undefined;
+    setError(problem && new Error(problem));
+    if (problem) return;
     setTesting(true);
-    setError(undefined);
     try {
       setTestResult(await api.connections.test(toConfig(state), connection?.id));
     } catch (caught) {
@@ -144,7 +153,7 @@ export function ConnectionForm({ connection, onSaved }: { connection?: Connectio
         {(props) => <input {...props} value={state.name} onChange={(e) => update('name', e.target.value)} required maxLength={80} />}
       </FormField>
 
-      <fieldset className="segmented" aria-label="Database type">
+      <fieldset className="segmented segmented-grid" aria-label="Database type">
         {KINDS.map((kind) => (
           <label key={kind} className={state.kind === kind ? 'is-selected' : undefined}>
             <input type="radio" name="kind" value={kind} checked={state.kind === kind} onChange={() => changeKind(kind)} />
@@ -250,9 +259,16 @@ export function ConnectionForm({ connection, onSaved }: { connection?: Connectio
         </div>
       )}
 
+      {state.kind === 'http' && (
+        <HttpConnectionFields value={state.http} onChange={(http) => update('http', http)} connection={connection} />
+      )}
+
       {testResult &&
         (testResult.ok ? (
-          <Hint>Connected in {testResult.latencyMs} ms.</Hint>
+          <>
+            <Hint>Connected in {testResult.latencyMs} ms.</Hint>
+            <HeaderList headers={testResult.rateLimit} label="Rate-limit headers" />
+          </>
         ) : (
           <ErrorNotice title="Connection failed" error={new Error(testResult.message)} />
         ))}

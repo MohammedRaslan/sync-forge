@@ -2,9 +2,8 @@ import { useEffect, useState } from 'react';
 import type { Connection, FieldInfo, Lookup } from '../../api/types';
 import { FormField } from '../../components/FormField';
 import { Icon } from '../../components/Icon';
-import { uploadCsvFileAsNamed } from '../../lib/csvUpload';
 import { KIND_LABEL } from '../../lib/format';
-import { CollectionPicker } from './CollectionPicker';
+import { CollectionPicker, sourcePickerProps } from './CollectionPicker';
 import { SourceFieldList } from './SourceFieldList';
 
 /** Names the editor gives new lookups; replaced by the collection name once one is chosen. */
@@ -43,7 +42,7 @@ export function LookupEditor({ lookup, index, connections, fields, selected, onC
     if (next !== lookup.as && VALID_NAME.test(next)) onChange({ ...lookup, as: next });
     else setName(lookup.as);
   };
-  const isCsv = connections.find((c) => c.id === lookup.connectionId)?.kind === 'csv';
+  const lookupKind = connections.find((c) => c.id === lookup.connectionId)?.kind;
   const prefixed = fields.map((field) => ({ ...field, path: `${lookup.as}.${field.path}`, primaryKey: false }));
   const setPair = (pairIndex: number, pair: Lookup['on'][number] | undefined) =>
     onChange({
@@ -102,9 +101,8 @@ export function LookupEditor({ lookup, index, connections, fields, selected, onC
 
       <CollectionPicker
         key={lookup.connectionId}
-        label={isCsv ? 'File' : 'Table or collection'}
+        {...sourcePickerProps(lookupKind, lookup.connectionId)}
         connectionId={lookup.connectionId}
-        onUpload={isCsv ? (file, onProgress) => uploadCsvFileAsNamed(lookup.connectionId, file, onProgress) : undefined}
         value={lookup.collection}
         onChange={(collection) =>
           onChange({ ...lookup, collection, as: PLACEHOLDER_NAME.test(lookup.as) && collection ? lookupNameFor(collection) : lookup.as })

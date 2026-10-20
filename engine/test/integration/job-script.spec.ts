@@ -1,4 +1,6 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { Server, createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -6,7 +8,7 @@ import { MongoClient } from 'mongodb';
 import { Pool } from 'pg';
 import ts from 'typescript';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ConnectionConfig, ConnectionView, CsvConfig, SECRET_FIELD } from '../../src/connections/connection.model';
+import { ConnectionConfig, ConnectionView, CsvConfig, SECRET_FIELD, httpConfigSchema } from '../../src/connections/connection.model';
 import { buildJobScript } from '../../src/jobs/job-script';
 import { Job } from '../../src/jobs/job.model';
 import { Started, startMongo, startPostgres } from './containers';
@@ -209,6 +211,95 @@ describe('exported job script with a CSV source', () => {
       { id: 1, value: '3.5', taken_at: new Date('2025-05-01T08:00:00Z') },
       { id: 2, value: null, taken_at: new Date('2025-05-02T08:00:00Z') },
       { id: 3, value: '7.25', taken_at: new Date('2025-05-03T08:00:00Z') },
+    ]);
+  });
+});
+
+describe('exported job script with an HTTP API source', () => {
+  const token = 'script-bearer-token-7'; // secret-scan: allow
+  const authorizations: Array<string | undefined> = [];
+  let server: Server;
+  let httpScript: string;
+  let pg: Pool;
+
+  /** Like {@link runScript}, without blocking: the stub API answers from this process. */
+  function runScriptAsync(env: Record<string, string>): Promise<{ code: number | null; output: string }> {
+    return new Promise((resolvePromise, reject) => {
+      const child = spawn(process.execPath, [httpScript], { cwd: WORK_DIR, env: { ...process.env, ...env } });
+      let output = '';
+      child.stdout.on('data', (chunk) => (output += chunk));
+      child.stderr.on('data', (chunk) => (output += chunk));
+      child.on('error', reject);
+      child.on('close', (code) => resolvePromise({ code, output }));
+    });
+  }
+
+  beforeAll(async () => {
+    server = createServer((request, response) => {
+      authorizations.push(request.headers.authorization);
+      if (request.headers.authorization !== `Bearer ${token}`) {
+        response.writeHead(401, { 'content-type': 'application/json' }).end('{"error":"unauthorized"}');
+        return;
+      }
+      const page = Number(new URL(request.url ?? '/', 'http://stub').searchParams.get('page'));
+      const items = page <= 2 ? [{ id: page * 2 - 1, score: page * 1.5 }, { id: page * 2, score: page * 2.5 }] : [];
+      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ items }));
+    });
+    await new Promise<void>((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    pg = new Pool({ host: postgres.config.host, port: postgres.config.port, database: 'postgres', user: 'postgres', password: 'postgres', max: 1 });
+    await pg.query('CREATE TABLE public.scores (id int PRIMARY KEY, score numeric)');
+
+    const job: Job = {
+      id: 'http-script-test',
+      name: 'Scores from API',
+      source: { connectionId: 'api', collection: 'scores' },
+      target: { connectionId: 'pg', collection: 'public.scores', keyFields: ['id'] },
+      mappings: ['id', 'score'].map((field) => ({ from: field, to: field, transform: 'none' as const })),
+      mode: 'full',
+      batchSize: 3,
+      errorPolicy: 'fail',
+      createdAt: '',
+      updatedAt: '',
+    };
+    const apiConfig = httpConfigSchema.parse({
+      kind: 'http',
+      baseUrl: base,
+      auth: { type: 'bearer' },
+      secret: token,
+      endpoints: [{ name: 'scores', path: '/scores', dataPath: 'items', pagination: { type: 'page' } }],
+    });
+    const { fileName, content } = buildJobScript(job, [viewOf('api', 'Score API', apiConfig), viewOf('pg', 'Script PG', postgres.config)], '2026-10-19');
+    expect(content).not.toContain(token);
+    httpScript = writeScript(fileName, content);
+  });
+
+  afterAll(async () => {
+    await pg?.end();
+    server?.closeAllConnections();
+    await new Promise<void>((resolvePromise) => (server ? server.close(() => resolvePromise()) : resolvePromise()));
+  });
+
+  it('refuses to run without the token and names its variable, before any request', async () => {
+    const { code, output } = await runScriptAsync({ SCRIPT_PG_PASSWORD: 'postgres' });
+    expect(code).toBe(1);
+    expect(output).toContain('Set the environment variable SCORE_API_TOKEN');
+    expect(authorizations).toEqual([]);
+  });
+
+  it('reads every page with the token from the environment', async () => {
+    const { code, output } = await runScriptAsync({ SCORE_API_TOKEN: token, SCRIPT_PG_PASSWORD: 'postgres' });
+    expect(output).toContain('Finished: 4 read, 4 written, 0 skipped');
+    expect(code).toBe(0);
+    expect(output).not.toContain(token);
+    expect(authorizations).toEqual(Array(3).fill(`Bearer ${token}`));
+    const { rows } = await pg.query('SELECT id, score FROM public.scores ORDER BY id');
+    expect(rows).toEqual([
+      { id: 1, score: '1.5' },
+      { id: 2, score: '2.5' },
+      { id: 3, score: '3' },
+      { id: 4, score: '5' },
     ]);
   });
 });

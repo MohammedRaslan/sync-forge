@@ -27,7 +27,7 @@ async function setup(limitMb = 1) {
   dirs.push(root);
   const workspace = new Workspace(root);
   const settings = new SettingsService(new SettingsRepository(workspace));
-  await settings.update({ defaultBatchSize: 500, csvMaxUploadMb: limitMb });
+  await settings.update({ defaultBatchSize: 500, csvMaxUploadMb: limitMb, httpMaxResponseMb: 50 });
   const store = new CsvFileStore(workspace, settings);
   return { workspace, settings, store, directory: store.directoryFor(ID) };
 }
@@ -192,7 +192,7 @@ describe('CsvFileStore', () => {
 
   it('reads the limit from the settings at each upload', async () => {
     const { store, settings } = await setup(1);
-    await settings.update({ defaultBatchSize: 500, csvMaxUploadMb: 2 });
+    await settings.update({ defaultBatchSize: 500, csvMaxUploadMb: 2, httpMaxResponseMb: 50 });
     expect(await store.maxBytes()).toBe(2 * MB);
     expect((await store.save(ID, 'grown.csv', bigBody(MB + 1), { delimiter: 'auto' })).size).toBe(MB + 1);
   });
@@ -245,10 +245,10 @@ describe('CsvFileStore', () => {
 
 describe('ConnectionsService files', () => {
   async function service() {
-    const { workspace, store } = await setup();
+    const { workspace, store, settings } = await setup();
     const secrets = await SecretBox.load(join(workspace.root, 'secret.key'));
     // Files never open a connector, so the factory is not needed.
-    const connections = new ConnectionsService(new ConnectionsRepository(workspace.local('connections')), secrets, {} as ConnectorFactory, store);
+    const connections = new ConnectionsService(new ConnectionsRepository(workspace.local('connections')), secrets, {} as ConnectorFactory, store, settings);
     return { connections, store };
   }
 

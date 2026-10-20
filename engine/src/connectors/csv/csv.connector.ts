@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { pipeline } from 'node:stream';
 import { parse } from 'csv-parse';
 import { AppError, NotFoundError, ValidationError } from '../../common/errors';
+import { matchesFilters } from '../../common/filters';
 import { getPath } from '../../common/paths';
 import { keyString } from '../../common/values';
 import { CsvConfig } from '../../connections/connection.model';
@@ -18,7 +19,6 @@ import {
   detectDelimiter,
   isCsvParseError,
   isSafeCsvFileName,
-  matchesFilters,
 } from './csv-format';
 
 /** Rows sampled to tell which columns hold empty cells. */

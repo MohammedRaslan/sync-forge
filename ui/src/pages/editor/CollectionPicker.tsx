@@ -1,9 +1,11 @@
 import { ChangeEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
+import type { ConnectionKind } from '../../api/types';
 import { CsvUploadError } from '../../components/CsvUploadError';
 import { ErrorNotice, Hint } from '../../components/Feedback';
 import { Icon } from '../../components/Icon';
 import { useAsync } from '../../hooks/useAsync';
+import { uploadCsvFileAsNamed } from '../../lib/csvUpload';
 
 const MAX_SHOWN = 200;
 
@@ -17,17 +19,35 @@ interface UploadState {
   error?: unknown;
 }
 
+/** What a picker of a source or lookup collection says and offers for a connection of `kind`. */
+export function sourcePickerProps(kind: ConnectionKind | undefined, connectionId: string): { label: string; onUpload?: CollectionUpload; emptyHint?: string } {
+  switch (kind) {
+    case 'csv':
+      return {
+        label: 'File',
+        onUpload: (file, onProgress) => uploadCsvFileAsNamed(connectionId, file, onProgress),
+        emptyHint: 'No files uploaded yet.',
+      };
+    case 'http':
+      return { label: 'Endpoint', emptyHint: 'Endpoints are defined on the connection.' };
+    default:
+      return { label: 'Table or collection' };
+  }
+}
+
 /**
  * Type to filter, click to choose. Targets may name a collection that does not exist yet.
  * With `onUpload` (CSV connections) the collections are files, and a new one can be uploaded and chosen here.
  */
-export function CollectionPicker({ connectionId, value, onChange, allowNew = false, label, onUpload }: {
+export function CollectionPicker({ connectionId, value, onChange, allowNew = false, label, onUpload, emptyHint }: {
   connectionId: string;
   value: string;
   onChange: (collection: string) => void;
   allowNew?: boolean;
   label: string;
   onUpload?: CollectionUpload;
+  /** Shown when the connection has no collections, e.g. where they come from. */
+  emptyHint?: string;
 }) {
   const inputId = useId();
   const [focused, setFocused] = useState(false);
@@ -101,7 +121,7 @@ export function CollectionPicker({ connectionId, value, onChange, allowNew = fal
               : 'Choose a collection from the list.'}
         </p>
       )}
-      {onUpload && collections.data?.length === 0 && <Hint>No files uploaded yet.</Hint>}
+      {emptyHint && collections.data?.length === 0 && <Hint>{emptyHint}</Hint>}
       {showList && (
         <ul className="picker-list" role="listbox" aria-label={label}>
           {matches.map((name) => (

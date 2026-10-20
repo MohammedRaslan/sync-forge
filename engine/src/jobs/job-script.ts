@@ -1,7 +1,14 @@
-import { ConnectionKind, ConnectionView, SECRET_FIELD, SECRET_REQUIRED } from '../connections/connection.model';
+import { ConnectionKind, ConnectionView, HttpAuth, SECRET_FIELD, SECRET_REQUIRED, httpAuthSchema } from '../connections/connection.model';
 import { Job } from './job.model';
 
 const SECRET_LABEL = { password: 'password', uri: 'connection string', key: 'key' } as const; // labels only; secret-scan: allow
+/** HTTP APIs keep every kind of credential in `secret`; the variable is named and described after what it holds. */
+const HTTP_SECRET_ENV: Record<Exclude<HttpAuth['type'], 'none'>, { envSuffix: string; label: string }> = {
+  bearer: { envSuffix: 'token', label: 'bearer token' },
+  basic: { envSuffix: 'password', label: 'password' },
+  apiKeyHeader: { envSuffix: 'key', label: 'API key' },
+  apiKeyQuery: { envSuffix: 'key', label: 'API key' },
+};
 
 /** Must equal the engine package's "name": scripts find the runner through the package's own "exports". */
 export const STANDALONE_MODULE = 'sync-forge-engine/standalone';
@@ -17,13 +24,20 @@ export interface ScriptEnvField {
   field: string;
   label: string;
   required: boolean;
+  /** Ends the variable's name when it differs from the field, e.g. TOKEN for an HTTP API's `secret`. */
+  envSuffix?: string;
 }
 
 /**
  * Databases: the secret field. CSV connections have no secret, but their folder differs per machine,
- * so it comes from the environment too.
+ * so it comes from the environment too. HTTP APIs: the secret their auth type needs, or null without auth.
+ * `settings` are the connection's settings as the API returns them (without the secret).
  */
-export function scriptEnvField(kind: ConnectionKind): ScriptEnvField {
+export function scriptEnvField(kind: ConnectionKind, settings: Readonly<Record<string, unknown>>): ScriptEnvField | null {
+  if (kind === 'http') {
+    const auth = httpAuthSchema.parse(settings.auth ?? { type: 'none' });
+    return auth.type === 'none' ? null : { field: 'secret', required: true, ...HTTP_SECRET_ENV[auth.type] };
+  }
   const field = SECRET_FIELD[kind];
   if (field === null) return { field: 'directory', label: 'folder holding the CSV files', required: true };
   return { field, label: SECRET_LABEL[field], required: SECRET_REQUIRED[kind] };
@@ -46,16 +60,19 @@ function inComment(text: string): string {
 export function buildJobScript(job: Job, connections: readonly ConnectionView[], exportedOn: string): { fileName: string; content: string } {
   const { createdAt: _created, updatedAt: _updated, ...spec } = job;
   const used = new Set<string>();
-  const fromEnv = connections.map((connection) => {
-    const { field, label, required } = scriptEnvField(connection.kind);
-    let name = secretEnvName(connection.name, field);
-    if (used.has(name)) name = secretEnvName(`${connection.name} ${connection.id}`, field);
+  const withEnv = connections.map((connection) => {
+    const envField = scriptEnvField(connection.kind, connection.settings);
+    if (envField === null) return { connection, env: null };
+    const { field, label, required, envSuffix = field } = envField;
+    let name = secretEnvName(connection.name, envSuffix);
+    if (used.has(name)) name = secretEnvName(`${connection.name} ${connection.id}`, envSuffix);
     used.add(name);
-    return { connection, field, label, name, reader: required ? 'env' : 'optionalEnv' };
+    return { connection, env: { field, label, name, reader: required ? 'env' : 'optionalEnv' } };
   });
+  const fromEnv = withEnv.flatMap(({ connection, env }) => (env ? [{ connection, ...env }] : []));
   const hasCsv = connections.some((connection) => connection.kind === 'csv');
 
-  const connectionEntries = fromEnv.map(({ connection, field, name, reader }) => {
+  const connectionEntries = withEnv.map(({ connection, env }) => {
     const settings = Object.entries({ ...connection.settings, kind: connection.kind })
       .sort(([a], [b]) => (a === 'kind' ? -1 : b === 'kind' ? 1 : 0))
       .map(([key, value]) => `        ${JSON.stringify(key)}: ${literal(value, 8)},`);
@@ -64,7 +81,8 @@ export function buildJobScript(job: Job, connections: readonly ConnectionView[],
       `      name: ${JSON.stringify(connection.name)},`,
       '      config: {',
       ...settings,
-      `        ${field}: ${reader}(${JSON.stringify(name)}),`,
+      // An HTTP API without auth has no secret: its settings are all the script needs.
+      ...(env ? [`        ${env.field}: ${env.reader}(${JSON.stringify(env.name)}),`] : []),
       '      },',
       '    },',
     ].join('\n');

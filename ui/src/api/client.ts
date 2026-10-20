@@ -7,6 +7,9 @@ import type {
   CsvFileInfo,
   CsvFileList,
   FieldInfo,
+  HttpConfig,
+  HttpEndpoint,
+  HttpProbeResult,
   Job,
   JobInput,
   PreviewResult,
@@ -107,6 +110,9 @@ export const api = {
     remove: (id: string) => request<void>('DELETE', `/connections/${enc(id)}`),
     test: (config: ConnectionConfig, connectionId?: string) =>
       request<ConnectionTestResult>('POST', '/connections/test', { config, connectionId }),
+    /** One trial request to an endpoint of unsaved HTTP API settings; a blank secret uses the saved one of `connectionId`. */
+    probeHttp: (config: Omit<HttpConfig, 'endpoints'>, endpoint: HttpEndpoint, connectionId?: string) =>
+      request<HttpProbeResult>('POST', '/connections/http/probe', { config, endpoint, connectionId }),
     collections: (id: string) => request<CollectionInfo[]>('GET', `/connections/${enc(id)}/collections`),
     fields: (id: string, collection: string) =>
       request<FieldInfo[]>('GET', `/connections/${enc(id)}/fields?collection=${enc(collection)}`),

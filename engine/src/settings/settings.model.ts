@@ -18,6 +18,11 @@ export const settingsSchema = z.object({
    * roughly 5 times its size, so this also bounds memory: 512 MB already needs about 2.5 GB.
    */
   csvMaxUploadMb: z.coerce.number().int().min(1).max(512).default(100),
+  /**
+   * Largest HTTP API response read, in megabytes. A lookup on an endpoint holds every page in memory,
+   * so this also bounds what one lookup can take.
+   */
+  httpMaxResponseMb: z.coerce.number().int().min(1).max(512).default(50),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;

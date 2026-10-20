@@ -58,6 +58,7 @@
   --kind-mongo: #86e0a0;
   --kind-cosmos: #f3b46e;
   --kind-csv: #b8c4d6;
+  --kind-http: #c6e36a;
 
   --font-display: 'Chakra Petch', 'Segoe UI', system-ui, sans-serif;
   --font-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -123,6 +124,7 @@
   --kind-mongo: #2e9a55;
   --kind-cosmos: #b8660f;
   --kind-csv: #5b6b82;
+  --kind-http: #5f7a12;
 
   color-scheme: light;
 }
@@ -552,6 +554,12 @@ input[type='radio'] {
   opacity: 0;
 }
 
+/* Many options in a narrow column: even rows instead of a ragged wrap. */
+.segmented-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+}
+
 /* ---------- Feedback ---------- */
 .notice {
   display: grid;
@@ -713,6 +721,10 @@ input[type='radio'] {
 
 .kind-csv::before {
   background: var(--kind-csv);
+}
+
+.kind-http::before {
+  background: var(--kind-http);
 }
 
 .tag {
@@ -1341,7 +1353,8 @@ input[type='radio'] {
   text-transform: uppercase;
 }
 
-.lookup {
+.lookup,
+.endpoint {
   display: grid;
   gap: 14px;
   padding: 16px;
@@ -1351,14 +1364,16 @@ input[type='radio'] {
   background: var(--surface-sunken);
 }
 
-.lookup-head {
+.lookup-head,
+.endpoint-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 36px;
   align-items: start;
   gap: 12px;
 }
 
-.lookup-remove {
+.lookup-remove,
+.endpoint-remove {
   margin-top: 26px;
 }
 
@@ -1628,7 +1643,8 @@ input[type='radio'] {
 }
 
 /* Conditions narrow what is read, so they carry the source color like the fields they test. */
-.source-filters {
+.source-filters,
+.kv-editor {
   display: grid;
   gap: 8px;
   justify-items: start;
@@ -1637,7 +1653,10 @@ input[type='radio'] {
   border: 0;
 }
 
-.source-filters legend {
+.source-filters legend,
+.kv-editor legend,
+.endpoints legend,
+.probe-arrays legend {
   margin-bottom: 6px;
   padding: 0;
   color: var(--ink-dim);
@@ -1651,6 +1670,97 @@ input[type='radio'] {
   align-items: center;
   gap: 8px;
   width: 100%;
+}
+
+/* ---------- HTTP API connection ---------- */
+.kv-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 36px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.endpoints {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.header-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  color: var(--ink-dim);
+  font-size: 0.84rem;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+.probe-result {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  /* Next-page URLs and key lists are long unbroken strings. */
+  overflow-wrap: anywhere;
+  border: 1px solid var(--seam);
+  border-radius: var(--radius-control);
+  background: var(--hull);
+}
+
+.probe-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  color: var(--ink-dim);
+  font-size: 0.86rem;
+}
+
+.probe-status {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.probe-status.is-ok {
+  color: var(--ok);
+}
+
+.probe-status.is-warn {
+  color: var(--warn);
+}
+
+.probe-status.is-failed {
+  color: var(--danger);
+}
+
+.probe-arrays {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.probe-array {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  color: var(--ink-dim);
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.probe-array code:first-of-type {
+  color: var(--ink);
+}
+
+.probe-keys {
+  color: var(--ink-faint);
 }
 
 /* ---------- Job detail ---------- */
@@ -1961,12 +2071,24 @@ input[type='radio'] {
     flex: 1;
   }
 
-  /* Name and remove button share the first row; the connection gets its own. */
-  .lookup-head {
+  /* Name and remove button share the first row; the connection (or path) gets its own. */
+  .lookup-head,
+  .endpoint-head {
     grid-template-columns: minmax(0, 1fr) 36px;
   }
 
-  .lookup-head > .field + .field {
+  .lookup-head > .field + .field,
+  .endpoint-head > .field + .field {
+    grid-row: 2;
+    grid-column: 1 / -1;
+  }
+
+  /* Name and remove button on the first row, the value below with the room. */
+  .kv-row {
+    grid-template-columns: minmax(0, 1fr) 36px;
+  }
+
+  .kv-row > :nth-child(2) {
     grid-row: 2;
     grid-column: 1 / -1;
   }
