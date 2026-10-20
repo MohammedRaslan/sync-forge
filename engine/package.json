@@ -1,6 +1,6 @@
 {
   "name": "sync-forge-engine",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Syncforge engine: connectors, job runner and HTTP API",
   "license": "MIT",
