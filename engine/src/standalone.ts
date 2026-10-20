@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { NotFoundError, ValidationError, errorMessage } from './common/errors';
-import { ConnectionView, ConnectorConfig, SECRET_FIELD, SECRET_REQUIRED, connectorConfigSchema } from './connections/connection.model';
+import { ConnectionView, ConnectorConfigInput, SECRET_FIELD, connectorConfigSchema, secretRequired } from './connections/connection.model';
 import { ConnectorFactory } from './connectors/connector.factory';
 import { Job, JobInput, jobInputSchema } from './jobs/job.model';
 import { DryRunReport, dryRunWriterFor } from './sync/dry-run-writer';
@@ -21,9 +21,9 @@ export interface StandaloneConnection {
   name: string;
   /**
    * Connection settings as in the app, with the secret read from the environment (see `env`).
-   * CSV connections also name the folder holding their files.
+   * CSV connections also name the folder holding their files. Defaults are filled when the job runs.
    */
-  config: ConnectorConfig;
+  config: ConnectorConfigInput;
 }
 
 export interface StandaloneDefinition {
@@ -135,7 +135,8 @@ function scriptConnections(connections: Record<string, StandaloneConnection>): C
       if (!connection) throw new NotFoundError(`The script has no connection "${id}"`);
       const config = connectorConfigSchema.parse(connection.config);
       const secretField = SECRET_FIELD[config.kind];
-      if (secretField !== null && SECRET_REQUIRED[config.kind] && !(config as Record<string, unknown>)[secretField]) {
+      const authType = config.kind === 'http' ? config.auth.type : undefined;
+      if (secretField !== null && secretRequired(config.kind, authType) && !(config as Record<string, unknown>)[secretField]) {
         throw new ValidationError(`Connection "${connection.name}" needs its ${secretField}`);
       }
       const view: ConnectionView = {

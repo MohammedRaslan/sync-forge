@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import type { Connection, ConnectionConfig, ConnectionTestResult } from '../api/types';
 import { Drawer } from '../components/Drawer';
 import { EmptyState, ErrorNotice, Loading } from '../components/Feedback';
+import { HeaderList } from '../components/HeaderList';
 import { Icon } from '../components/Icon';
 import { KindBadge } from '../components/KindBadge';
 import { PageHeader } from '../components/PageHeader';
@@ -10,7 +11,7 @@ import { useAsync } from '../hooks/useAsync';
 import { ConnectionForm } from './ConnectionForm';
 import { CsvFilesPanel } from './CsvFilesPanel';
 
-const SECRET_FIELD = { postgres: 'password', mysql: 'password', mongo: 'uri', cosmos: 'key', csv: null } as const;
+const SECRET_FIELD = { postgres: 'password', mysql: 'password', mongo: 'uri', cosmos: 'key', csv: null, http: 'secret' } as const;
 
 type Editing = { mode: 'new' } | { mode: 'edit'; connection: Connection } | undefined;
 
@@ -89,6 +90,7 @@ export function ConnectionsPage() {
                     {result.ok ? `Reachable in ${result.latencyMs} ms` : result.message}
                   </p>
                 )}
+                {result && result !== 'pending' && result.ok && <HeaderList headers={result.rateLimit} label="Rate-limit headers" />}
               </div>
               <div className="connection-actions">
                 {connection.kind !== 'csv' && (

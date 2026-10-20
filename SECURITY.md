@@ -10,13 +10,14 @@ It is **not intended for production, shared servers, hosted services or any inte
 
 Please report problems that break the guarantees Syncforge does make, for example:
 
-- Saved credentials (passwords, connection strings, keys) leaking through the API, logs, run history, exported scripts or git.
+- Saved credentials (passwords, connection strings, keys, HTTP API tokens) leaking through the API, logs, run history, error messages, query previews, exported scripts or git.
+- HTTP API credentials sent to any origin other than the connection's base URL (for example through a redirect or a next-page URL).
+- A source database or HTTP API being written to (HTTP API connections send GET requests only).
 - SQL or query injection through table, field or file names, or through values.
-- A source database being written to.
 - Path traversal outside the workspace (job ids, connection ids, uploaded CSV file names).
 - The engine listening on, or being reachable from, more than loopback with the default settings.
 
-Things that follow from the documented design are not vulnerabilities: no authentication, expressions being able to run code, or what someone can do once they can reach a Syncforge instance that was exposed on purpose.
+Things that follow from the documented design are not vulnerabilities: no authentication, expressions being able to run code, HTTP API connections sending requests to whatever host a user enters (including internal hosts and `localhost`; there is deliberately no allow-list), headers and query params of an HTTP API connection being shown in clear text (they are settings, not secrets), or what someone can do once they can reach a Syncforge instance that was exposed on purpose.
 
 ## Reporting
 

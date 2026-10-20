@@ -9,6 +9,7 @@ export type ValueComparison = (expected: unknown, actual: unknown) => boolean;
 /**
  * SQL databases convert bound text to the column type, so a different spelling is not a change there.
  * MongoDB and Cosmos DB store each value with its own type, so a change of type is. CSV files hold only text.
+ * HTTP APIs return JSON, typed like documents.
  */
 const COMPARISON_BY_KIND: Readonly<Record<ConnectionKind, ValueComparison>> = {
   postgres: valuesEqual,
@@ -16,6 +17,7 @@ const COMPARISON_BY_KIND: Readonly<Record<ConnectionKind, ValueComparison>> = {
   csv: valuesEqual,
   mongo: documentValuesEqual,
   cosmos: documentValuesEqual,
+  http: documentValuesEqual,
 };
 
 /** How dry runs and reconciliation decide that a field on a target of this kind would change. */

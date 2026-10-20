@@ -38,19 +38,19 @@ async function failure(promise: Promise<unknown>): Promise<Error> {
 describe('SettingsService', () => {
   it('gives the defaults when no settings were saved', async () => {
     const { service } = await setup();
-    expect(await service.get()).toEqual({ defaultBatchSize: 500, csvMaxUploadMb: 100 });
+    expect(await service.get()).toEqual({ defaultBatchSize: 500, csvMaxUploadMb: 100, httpMaxResponseMb: 50 });
   });
 
   it('keeps saved settings for the next read', async () => {
     const { service } = await setup();
-    await service.update({ defaultBatchSize: 2000, csvMaxUploadMb: 50 });
-    expect(await service.get()).toEqual({ defaultBatchSize: 2000, csvMaxUploadMb: 50 });
+    await service.update({ defaultBatchSize: 2000, csvMaxUploadMb: 50, httpMaxResponseMb: 8 });
+    expect(await service.get()).toEqual({ defaultBatchSize: 2000, csvMaxUploadMb: 50, httpMaxResponseMb: 8 });
   });
 
   it('fills fields missing from an older settings file with their defaults', async () => {
     const { workspace, service } = await setup();
     await writeSettingsFile(workspace, { id: 'app', defaultBatchSize: 250 });
-    expect(await service.get()).toEqual({ defaultBatchSize: 250, csvMaxUploadMb: 100 });
+    expect(await service.get()).toEqual({ defaultBatchSize: 250, csvMaxUploadMb: 100, httpMaxResponseMb: 50 });
   });
 
   it('reports a damaged settings file as a conflict that names the file and the field', async () => {
@@ -73,9 +73,9 @@ describe('SettingsService', () => {
 
   it('returns current values with the defaults in its view', async () => {
     const { service } = await setup();
-    await service.update({ defaultBatchSize: 10, csvMaxUploadMb: 1 });
+    await service.update({ defaultBatchSize: 10, csvMaxUploadMb: 1, httpMaxResponseMb: 1 });
     expect(await service.view()).toEqual({
-      settings: { defaultBatchSize: 10, csvMaxUploadMb: 1 },
+      settings: { defaultBatchSize: 10, csvMaxUploadMb: 1, httpMaxResponseMb: 1 },
       defaults: defaultSettings(),
     });
   });
@@ -88,6 +88,9 @@ describe('settingsSchema', () => {
     expect(settingsSchema.safeParse({ csvMaxUploadMb: 513 }).success).toBe(false);
     expect(settingsSchema.safeParse({ csvMaxUploadMb: 512 }).success).toBe(true);
     expect(settingsSchema.safeParse({ csvMaxUploadMb: 1.5 }).success).toBe(false);
+    expect(settingsSchema.safeParse({ httpMaxResponseMb: 0 }).success).toBe(false);
+    expect(settingsSchema.safeParse({ httpMaxResponseMb: 513 }).success).toBe(false);
+    expect(settingsSchema.safeParse({ httpMaxResponseMb: 512 }).success).toBe(true);
   });
 
   it('drops keys it does not know, so a newer settings file still loads', () => {

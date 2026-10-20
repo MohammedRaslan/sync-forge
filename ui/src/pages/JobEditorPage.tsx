@@ -7,9 +7,8 @@ import { ErrorNotice, Hint, Loading } from '../components/Feedback';
 import { FormField } from '../components/FormField';
 import { Icon } from '../components/Icon';
 import { useAsync } from '../hooks/useAsync';
-import { uploadCsvFileAsNamed } from '../lib/csvUpload';
 import { KIND_LABEL } from '../lib/format';
-import { CollectionPicker } from './editor/CollectionPicker';
+import { CollectionPicker, sourcePickerProps } from './editor/CollectionPicker';
 import { LookupEditor } from './editor/LookupEditor';
 import { MappingTable } from './editor/MappingTable';
 import { PreviewTable } from './editor/PreviewTable';
@@ -72,13 +71,27 @@ function isUnder(path: string, name: string): boolean {
   return path === name || path.startsWith(`${name}.`);
 }
 
+/** Connections that can be a source or a lookup but never a target (mirrors READ_ONLY_KINDS in sync.service). */
+const READ_ONLY_KINDS = ['csv', 'http'] as const;
+type WritableKind = Exclude<Connection['kind'], (typeof READ_ONLY_KINDS)[number]>;
+
+function isWritable(kind: Connection['kind']): kind is WritableKind {
+  return !(READ_ONLY_KINDS as readonly Connection['kind'][]).includes(kind);
+}
+
+/** Sources read whole on every run, with no watermark (the engine refuses incremental mode), and why. */
+const FULL_MODE_ONLY_KINDS: Partial<Record<Connection['kind'], string>> = {
+  csv: 'CSV files run in full mode: each upload replaces the file, and re-running is safe.',
+  http: 'HTTP APIs run in full mode: each run fetches every page, and re-running is safe.',
+};
+
 const TARGET_HINTS = {
   postgres: 'Key columns need a primary key or unique constraint in the target table. Unmapped columns keep their values.',
   mysql:
     'Rows are matched on the key fields only. A clash on any other unique column fails the row instead of updating a different one. Unmapped columns keep their values.',
   mongo: 'Documents are matched on the key fields. Only mapped fields are updated; dotted names such as address.city write nested fields.',
   cosmos: 'Map a field to “id” and make it the only key. Writes replace whole documents, so map every field the document needs.',
-} as const satisfies Record<Exclude<Connection['kind'], 'csv'>, string>;
+} as const satisfies Record<WritableKind, string>;
 
 /** Targets that keep value types, so text read from a CSV file stays text unless a transform converts it. */
 const TYPED_DOCUMENT_KINDS: ReadonlySet<Connection['kind'] | undefined> = new Set(['mongo', 'cosmos']);
@@ -142,8 +155,8 @@ export function JobEditorPage() {
   const sourceConnection = connections.get(draft.source.connectionId);
   const targetConnection = connections.get(draft.target.connectionId);
   const isQuerySource = draft.source.query !== undefined;
-  // CSV files are read whole: no SQL query, no watermark (the engine refuses both).
   const sourceIsCsv = sourceConnection?.kind === 'csv';
+  const fullModeHint = sourceConnection && FULL_MODE_ONLY_KINDS[sourceConnection.kind];
   const tableFields = useFields(draft.source.connectionId, isQuerySource ? '' : draft.source.collection);
   const queryFields = useAsync<FieldInfo[]>(
     () =>
@@ -318,7 +331,7 @@ export function JobEditorPage() {
   if (!setup.data) return <Loading />;
 
   const sortedConnections = setup.data.connections;
-  const targetConnections = sortedConnections.filter((c) => c.kind !== 'csv');
+  const targetConnections = sortedConnections.filter((c) => isWritable(c.kind));
   const watermarkCandidates = (sourceFields.data ?? []).filter((field) => !NOT_ORDERABLE.has(field.type));
 
   return (
@@ -354,12 +367,13 @@ export function JobEditorPage() {
                 value={draft.source.connectionId}
                 onChange={(event) => {
                   const connectionId = event.target.value;
-                  const toCsv = connections.get(connectionId)?.kind === 'csv';
+                  const kind = connections.get(connectionId)?.kind;
+                  const fullOnly = kind !== undefined && FULL_MODE_ONLY_KINDS[kind] !== undefined;
                   change((job) => ({
                     ...job,
                     source: { connectionId, collection: '' },
-                    mode: toCsv ? 'full' : job.mode,
-                    watermarkField: toCsv ? undefined : job.watermarkField,
+                    mode: fullOnly ? 'full' : job.mode,
+                    watermarkField: fullOnly ? undefined : job.watermarkField,
                   }));
                 }}
               >
@@ -431,11 +445,8 @@ export function JobEditorPage() {
           ) : (
             <CollectionPicker
               key={draft.source.connectionId}
-              label={sourceIsCsv ? 'File' : 'Table or collection'}
+              {...sourcePickerProps(sourceConnection?.kind, draft.source.connectionId)}
               connectionId={draft.source.connectionId}
-              onUpload={
-                sourceIsCsv ? (file, onProgress) => uploadCsvFileAsNamed(draft.source.connectionId, file, onProgress) : undefined
-              }
               value={draft.source.collection}
               onChange={(collection) => change((job) => ({ ...job, source: { ...job.source, collection } }))}
             />
@@ -522,7 +533,7 @@ export function JobEditorPage() {
             )}
           </FormField>
           {targetConnections.length === 0 && sortedConnections.length > 0 && (
-            <Hint>CSV connections can be a source or a lookup, not a target. Add a database connection to write to.</Hint>
+            <Hint>CSV files and HTTP APIs can be a source or a lookup, not a target. Add a database connection to write to.</Hint>
           )}
           <CollectionPicker
             label="Table or collection"
@@ -531,7 +542,7 @@ export function JobEditorPage() {
             value={draft.target.collection}
             onChange={(collection) => change((job) => ({ ...job, target: { ...job.target, collection } }))}
           />
-          {targetConnection && targetConnection.kind !== 'csv' && <Hint>{TARGET_HINTS[targetConnection.kind]}</Hint>}
+          {targetConnection && isWritable(targetConnection.kind) && <Hint>{TARGET_HINTS[targetConnection.kind]}</Hint>}
         </div>
       </section>
 
@@ -577,14 +588,14 @@ export function JobEditorPage() {
                   type="radio"
                   name="mode"
                   checked={draft.mode === mode}
-                  disabled={sourceIsCsv && mode === 'incremental'}
+                  disabled={Boolean(fullModeHint) && mode === 'incremental'}
                   onChange={() => change((job) => ({ ...job, mode }))}
                 />
                 {mode === 'full' ? 'Full copy every run' : 'Only new and changed rows'}
               </label>
             ))}
           </fieldset>
-          {sourceIsCsv && <Hint>CSV files run in full mode: each upload replaces the file, and re-running is safe.</Hint>}
+          {fullModeHint && <Hint>{fullModeHint}</Hint>}
           <div className="form-grid">
             {draft.mode === 'incremental' && (
               <FormField label="Watermark field" hint="A field that grows when a row changes, such as updated_at. Each run continues from the last value it saw.">

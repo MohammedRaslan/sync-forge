@@ -1,8 +1,8 @@
 # Syncforge
 
-Build, run and verify data sync jobs between **PostgreSQL**, **MySQL**, **MongoDB** and **Cosmos DB** from a UI, instead of writing another one-off script. Uploaded **CSV files** work as a source too.
+Build, run and verify data sync jobs between **PostgreSQL**, **MySQL**, **MongoDB** and **Cosmos DB** from a UI, instead of writing another one-off script. Uploaded **CSV files** and **HTTP APIs** (JSON over GET) work as a source or lookup too.
 
-Syncforge runs on your machine. You point it at two databases (or a CSV file and a database), pick a table, tick the fields you need, decide how each one lands in the target, and run it. It can then check the result for you: it re-maps a sample of source rows and compares them field by field with what is in the target.
+Syncforge runs on your machine. You point it at two databases (or a CSV file or a REST API and a database), pick a table, tick the fields you need, decide how each one lands in the target, and run it. It can then check the result for you: it re-maps a sample of source rows and compares them field by field with what is in the target.
 
 > [!WARNING]
 > **Local-only tool, not for production.** Syncforge has no login and trusts everyone who can reach it. It is meant to run on your own machine, bound to `127.0.0.1`, for people who are already trusted with the databases it connects to. Do not expose it to a network, host it as a service, or reuse its code as a pattern for internet-facing applications. See [Security model](#security-model).
@@ -19,6 +19,7 @@ Syncforge turns those scripts into **job specs**: small JSON files that describe
 
 - **Browse schemas** of PostgreSQL and MySQL tables and views, and of MongoDB and Cosmos DB collections (fields are inferred by sampling documents, including nested paths like `address.city`).
 - **Read CSV files** uploaded in the UI, as a job's source or as a lookup.
+- **Read HTTP APIs**: GET JSON from a REST API, page by page, as a job's source or as a lookup, with bearer, basic or API-key auth and a polite pace between requests.
 - **Join related data**: look up values from other tables or collections, in the same database or a different one (an order's customer email from the CRM), or read a PostgreSQL source through your own SQL query.
 - **Map fields** source to target, with transforms: type conversion, trimming, case, fallbacks, fixed values, and JavaScript expressions over the whole row (`row.first_name + ' ' + row.last_name`).
 - **Read only some rows** with conditions such as `created_at > 2025-01-31`; the database applies them, so nothing else is read.
@@ -41,7 +42,7 @@ Open <http://localhost:4000>.
 
 The sun/moon button in the top bar switches between the dark and light theme. Until you pick one, the UI follows your system setting.
 
-The **Settings** page holds defaults for this machine: the batch size for new jobs and the CSV upload size limit. They are saved in `workspace/.local/`, not shared through git. If the saved file was edited into an invalid state, the page names the problem and offers *Reset to defaults*.
+The **Settings** page holds defaults for this machine: the batch size for new jobs, the CSV upload size limit and the HTTP API response size limit. They are saved in `workspace/.local/`, not shared through git. If the saved file was edited into an invalid state, the page names the problem and offers *Reset to defaults*.
 
 The app listens on `127.0.0.1` only. To reach a database running on your own machine from inside the container, use the host name `host.docker.internal`.
 
@@ -92,7 +93,7 @@ Run it incrementally on `updated_at`. `shop.order_lines` (2 lines per legacy ord
 
 ## Core ideas
 
-**Connection.** A saved database, or a set of uploaded CSV files. Credentials are encrypted at rest (AES-256-GCM) and never returned by the API. When you edit a connection, leaving the secret blank keeps the saved one.
+**Connection.** A saved database, a set of uploaded CSV files, or an HTTP API. Credentials are encrypted at rest (AES-256-GCM) and never returned by the API. When you edit a connection, leaving the secret blank keeps the saved one.
 
 **Job.** One source collection, one target collection, a list of field mappings, and the key fields used to match rows in the target. *Duplicate* on a job page opens the editor with a copy of that job, named "… (copy)"; nothing is saved until you click *Save*, and the copy starts with no watermark or run history.
 
@@ -110,6 +111,19 @@ Run it incrementally on `updated_at`. `shop.order_lines` (2 lines per legacy ord
 - CSV jobs run in *Full copy* mode only; upserts make re-running them safe. A CSV can be a source or a lookup, not a target yet.
 - Uploading a file with the same name replaces it, so jobs that use it keep working. Deleting a connection deletes its files.
 - An exported script reads the CSV folder from an environment variable named after the connection, such as `PARTNER_FILES_DIRECTORY`. Files there must keep their uploaded names.
+
+**HTTP API connections.** Create a connection of type *HTTP API* to read JSON from a REST API with GET requests. One connection is one API:
+
+- **Base URL** (`https://api.example.com/v2`) and one or more **endpoints**. An endpoint has a name, a path relative to the base URL (`/orders`), its own query params, where its items are in the response, and how it pages. Endpoints show up like tables: a job's source or a lookup picks one by name.
+- **Authentication**: none, bearer token, basic (username and password), an API key in a header (`X-API-Key`), or an API key as a query param (`?api_key=`). The token, password or key is encrypted like any other secret and never shown again, nor in previews, query text, errors or logs (`***`). Exported scripts read it from an environment variable: `<CONNECTION>_TOKEN`, `_PASSWORD` or `_KEY`. A bearer token or header API key must fit in an HTTP header (one line, no control characters, nothing beyond Latin-1); one that does not is refused when saved, without being shown. When you edit the connection, a blank secret keeps the saved one only while the auth type and the base URL's scheme, host and port stay the same: pointing the base URL elsewhere asks for the secret again, so a saved token never goes to a new host. Extra **headers** and **query params** are settings, not secrets: they are stored and shown in clear text, so put credentials under Authentication only.
+- **Detect data** sends one request to an endpoint and shows the status, size, rate-limit headers and every array of objects in the response. Pick one to set the endpoint's **data root**: `$` when the body is the array itself, or a path such as `data.items`. Every item must be a JSON object.
+- **Pagination**: *none*, *page number* (`?page=1`, optional page size param), *offset/limit*, *cursor* (read from a response field such as `meta.next` and sent back as a param), *next URL* (a response field holding the next page's URL) or *Link header* (`rel="next"`). Page-number and offset paging stop at an empty page; cursor, next-URL and Link paging stop when the response names no next page, and read on past an empty page that still names one. A page shorter than the size asked for does **not** stop it: many APIs cap the page size without saying so, and stopping there would end the sync early without any error. Paging fails, rather than stopping quietly, when a next URL points to another origin, when a cursor or page repeats (a loop), when a page-number or offset request brings the same items as the one before (an API that repeats its last page instead of returning an empty one), or after 10,000 pages. An API that answers a page past the end with an error such as `400 Bad Request` fails the run too: use cursor, next-URL or Link paging with such an API.
+- **Pace**: *Seconds between requests* keeps requests to one API apart; a job's source and its lookups share that pace. A `429 Too Many Requests` or `503 Service Unavailable` is retried up to 3 times, waiting as long as its `Retry-After` header says (or 1, 2, 4 seconds without one); requests from the same job and its lookups wait out a `Retry-After` too. A `Retry-After` over 2 minutes fails the run with the wait named. Other errors are not retried.
+- **Size limit**: each response may be at most the size set in Settings (default 50 MB, at most 512 MB); a larger one is stopped while it downloads. A lookup holds all pages of its endpoint in memory, so they must fit in that limit together. So does re-running the failed rows of a job with an HTTP API source: an API cannot be asked for rows by key, so the retry fetches every page of the endpoint to find them.
+- **Read-only, full mode.** Syncforge sends only GET requests. An HTTP API can be a source or a lookup, never a target, and jobs run in *Full copy* mode; upserts make re-running them safe. Conditions are applied after fetching, in memory.
+- **JSON keeps its types**: numbers, booleans, nested objects and arrays arrive as such, so MongoDB targets need no transforms. Dates are text; PostgreSQL and MySQL convert them on write, MongoDB needs *To date*. Whole numbers above 9,007,199,254,740,991 (2^53 - 1, such as 64-bit Snowflake IDs) cannot be kept exactly in JavaScript and would be rounded, merging different IDs, so a response holding one is refused (the error does not quote the number, which is usually an ID); ask the API to send such IDs as text. Decimals and exponent numbers are read as usual.
+- **Costs**: every run, *Compare source and target* (counting) and every lookup on an endpoint fetch all of its pages; there is no cheaper count. Page-number and offset paging can skip or repeat rows if the data changes while it is read; prefer cursor, next-URL or Link paging when the API offers it.
+- Credentials are sent only to the base URL's origin: redirects to another origin and next-page URLs on another origin are refused, never followed.
 
 **Key fields.** Every write is an upsert on these fields. For PostgreSQL targets they need a primary key or unique constraint. For Cosmos DB the key is always the document `id`.
 
@@ -148,7 +162,7 @@ Run it incrementally on `updated_at`. `shop.order_lines` (2 lines per legacy ord
 
 *Export script* on a job page downloads `<job>.sync.ts`: the job spec, the settings of every connection it uses, and a call into the engine's standalone runner. It runs the job with the engine's own code (connectors, lookups, transforms, upserts, error policy), so the result is the same as a run in the app.
 
-Secrets are never in the file. Each one is read from an environment variable named in the file's header, such as `LEGACY_PG_PASSWORD` or `OLD_CRM_URI`. A CSV connection's folder comes from one too (`<CONNECTION>_DIRECTORY`), since it differs per machine.
+Secrets are never in the file. Each one is read from an environment variable named in the file's header, such as `LEGACY_PG_PASSWORD` or `OLD_CRM_URI`. A CSV connection's folder comes from one too (`<CONNECTION>_DIRECTORY`), since it differs per machine. An HTTP API's token, password or key comes from `<CONNECTION>_TOKEN`, `_PASSWORD` or `_KEY`; an API without authentication needs none.
 
 ```bash
 npm run build --prefix engine            # once, and after updating Syncforge
@@ -203,9 +217,9 @@ npm run test:integration   # connectors against real databases, needs Docker
 
 Both run in the `Europe/Athens` time zone, so date handling that depends on the machine's zone fails everywhere, not only abroad.
 
-Unit tests cover value normalization, CSV parsing, path handling, every transform (including expression timeouts), SQL generation, schema inference, and the run loop (batching, de-duplication, skip policy, watermark checkpoints, cancellation, re-running failed rows).
+Unit tests cover value normalization, CSV parsing, HTTP paging, retries, size limits and credential masking against a stub API, path handling, every transform (including expression timeouts), SQL generation, schema inference, and the run loop (batching, de-duplication, skip policy, watermark checkpoints, cancellation, re-running failed rows).
 
-Integration tests start PostgreSQL 16, MySQL 8.4, MongoDB 7 and the Cosmos DB emulator in throwaway containers (Testcontainers) and run every connector through the same contract, plus whole jobs on the sandbox data. The first run pulls the images, which takes a few minutes; later runs take seconds. The Linux "vnext" Cosmos DB emulator is used because it runs on both Apple Silicon and x64.
+Integration tests start PostgreSQL 16, MySQL 8.4, MongoDB 7 and the Cosmos DB emulator in throwaway containers (Testcontainers) and run every connector through the same contract, plus whole jobs on the sandbox data, and HTTP API jobs against an in-process stub API. The first run pulls the images, which takes a few minutes; later runs take seconds. The Linux "vnext" Cosmos DB emulator is used because it runs on both Apple Silicon and x64.
 
 ## Upgrading
 
@@ -225,11 +239,13 @@ Syncforge is a **local developer tool**. Its safety comes from where it runs, no
 
 - Saved credentials are encrypted at rest (AES-256-GCM) and never returned by the API.
 - Identifiers and values are quoted or bound as parameters; uploaded CSV file names are checked, sizes are capped, and error messages never include cell values.
+- HTTP API credentials go only to the base URL's origin; redirects and next-page URLs to another origin are refused. Errors name the status and the URL with any API key masked, never headers or response bodies.
 - Workspace secrets, run history and uploaded files live under `workspace/.local/`, which is kept out of git and out of the Docker image, and a secret scan runs on every commit and push.
 
 **What it does not do**
 
 - No authentication, authorization, rate limiting or audit log.
+- No limit on where HTTP API connections point. Requests go to whatever host a user enters, including hosts on your internal network or `localhost`; that is fine for a loopback-only tool used by people trusted with those systems, and one more reason not to expose it.
 - No protection when it is reachable from other machines: anyone who can open the UI can read every connected database, write to targets and run code on the host.
 
 **So, please don't**
@@ -249,6 +265,7 @@ Found a security problem? See [SECURITY.md](SECURITY.md).
 - **Lookup keys are matched by the lookup database.** PostgreSQL and MySQL convert types (`'42'` finds `42`); MongoDB and Cosmos DB compare types strictly, so a text key will not find a numeric one. If the types differ, cast the key in a SQL query source (`SELECT order_no::text AS order_ref, …`).
 - **Expressions are trusted code.** They run in a separate context with a 50 ms limit per row, which stops mistakes like infinite loops but is not a security sandbox. Anyone who can edit a job can run code on the machine running Syncforge, which is why it is a local, loopback-only tool.
 - **CSV files are a source only, in full mode.** They cannot be a target yet, and incremental runs are not available for them.
+- **HTTP APIs are read-only, in full mode, GET with JSON only.** No target, no incremental runs, no POST or GraphQL, no OAuth, no self-signed certificates. Every run, compare, lookup and re-run of failed rows fetches every page of the endpoint, and page-number or offset paging can miss rows that change during a read. Responses with whole numbers above 2^53 - 1 are refused, and an API that answers a page past the end with an error fails page-number and offset paging.
 - **Target tables are not created for you** in PostgreSQL, MySQL or Cosmos DB. MongoDB creates collections on first write.
 
 ## Keeping credentials out of git

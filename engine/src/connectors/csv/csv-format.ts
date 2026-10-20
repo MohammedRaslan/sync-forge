@@ -1,10 +1,9 @@
 /**
  * Pure helpers for CSV sources: delimiter detection, file names, cell values, header checks,
- * in-memory filters, the Query tab text and safe parse-error messages. The CSV connector does the I/O.
+ * the Query tab text and safe parse-error messages. The CSV connector does the I/O.
  */
 import { AppError, ValidationError, errorMessage } from '../../common/errors';
 import { isSafeFieldPath } from '../../common/paths';
-import { parseDateText } from '../../common/values';
 import { FilterOp, Row, SourceFilter } from '../connector.types';
 
 /** Why CSV sources have no incremental mode; shown when a job asks for one. */
@@ -88,57 +87,6 @@ export function checkHeader(columns: readonly (string | null)[], file: string): 
     return column;
   });
 }
-
-/**
- * True when a row read from a CSV file meets every filter. Each cell is read as the filter value's type;
- * a cell that cannot be read that way does not match. "Not equal" also matches empty (null) cells,
- * like the database connectors.
- */
-export function matchesFilters(row: Row, filters: readonly SourceFilter[]): boolean {
-  return filters.every((filter) => matchesFilter(row[filter.field], filter));
-}
-
-function matchesFilter(cell: unknown, filter: SourceFilter): boolean {
-  if (cell === null || cell === undefined) return filter.op === 'ne';
-  const order = compareCell(String(cell), filter.value);
-  return order !== undefined && OP_MATCHES[filter.op](order);
-}
-
-const OP_MATCHES: Record<FilterOp, (order: number) => boolean> = {
-  eq: (order) => order === 0,
-  ne: (order) => order !== 0,
-  gt: (order) => order > 0,
-  gte: (order) => order >= 0,
-  lt: (order) => order < 0,
-  lte: (order) => order <= 0,
-};
-
-/** Negative, zero or positive as the cell sorts before, with or after the value; undefined when it cannot be read as the value's type. */
-function compareCell(cell: string, value: unknown): number | undefined {
-  if (typeof value === 'number') {
-    const number = cell.trim() === '' ? Number.NaN : Number(cell);
-    return Number.isFinite(number) ? Math.sign(number - value) : undefined;
-  }
-  if (value instanceof Date) {
-    // Read like a date filter value: without an offset, a date-time means UTC.
-    const time = parseDateText(cell);
-    return Number.isNaN(time) ? undefined : Math.sign(time - value.getTime());
-  }
-  if (typeof value === 'boolean') {
-    const flag = BOOLEAN_CELLS.get(cell.trim().toLowerCase());
-    return flag === undefined ? undefined : Number(flag) - Number(value);
-  }
-  const text = String(value);
-  return cell === text ? 0 : cell < text ? -1 : 1;
-}
-
-/** A Map, not an object literal, so a cell such as "constructor" finds no inherited property. */
-const BOOLEAN_CELLS: ReadonlyMap<string, boolean> = new Map([
-  ['true', true],
-  ['false', false],
-  ['1', true],
-  ['0', false],
-]);
 
 const OP_SYMBOLS: Record<FilterOp, string> = { eq: '=', ne: '!=', gt: '>', gte: '>=', lt: '<', lte: '<=' };
 

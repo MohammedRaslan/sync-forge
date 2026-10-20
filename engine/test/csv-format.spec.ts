@@ -1,7 +1,6 @@
 import { parse } from 'csv-parse/sync';
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '../src/common/errors';
-import { SourceFilter } from '../src/connectors/connector.types';
 import {
   castCell,
   checkHeader,
@@ -10,7 +9,6 @@ import {
   describeRead,
   detectDelimiter,
   isSafeCsvFileName,
-  matchesFilters,
 } from '../src/connectors/csv/csv-format';
 
 /** Parses CSV text the way the connector does. */
@@ -102,73 +100,6 @@ describe('checkHeader', () => {
 
   it('strips a byte order mark from the first name', () => {
     expect(parseCsv('﻿id\n1\n')).toEqual([{ id: '1' }]);
-  });
-});
-
-describe('matchesFilters', () => {
-  const filter = (field: string, op: SourceFilter['op'], value: unknown): SourceFilter => ({ field, op, value });
-
-  it('matches every row when there are no filters', () => {
-    expect(matchesFilters({ a: null }, [])).toBe(true);
-  });
-
-  it('compares text ordinally', () => {
-    const row = { status: 'paid' };
-    expect(matchesFilters(row, [filter('status', 'eq', 'paid')])).toBe(true);
-    expect(matchesFilters(row, [filter('status', 'eq', 'Paid')])).toBe(false);
-    expect(matchesFilters(row, [filter('status', 'gt', 'open')])).toBe(true);
-    expect(matchesFilters(row, [filter('status', 'lte', 'open')])).toBe(false);
-  });
-
-  it('reads cells as numbers for a number filter', () => {
-    const row = { amount: '10.50' };
-    expect(matchesFilters(row, [filter('amount', 'eq', 10.5)])).toBe(true);
-    expect(matchesFilters(row, [filter('amount', 'gt', 9)])).toBe(true);
-    // Text order would put "10.50" before "9".
-    expect(matchesFilters(row, [filter('amount', 'lt', 9)])).toBe(false);
-    expect(matchesFilters(row, [filter('amount', 'gte', 10.5), filter('amount', 'lte', 10.5)])).toBe(true);
-  });
-
-  it('does not match a cell that is not a number against a number filter', () => {
-    for (const op of ['eq', 'ne', 'gt', 'lt'] as const) {
-      expect(matchesFilters({ amount: 'n/a' }, [filter('amount', op, 5)]), op).toBe(false);
-    }
-    expect(matchesFilters({ amount: '' }, [filter('amount', 'eq', 0)])).toBe(false);
-  });
-
-  it('reads cells as dates for a date filter, without an offset meaning UTC', () => {
-    const since = new Date('2025-01-01T00:00:00Z');
-    expect(matchesFilters({ at: '2025-03-01' }, [filter('at', 'gt', since)])).toBe(true);
-    expect(matchesFilters({ at: '2024-12-31T23:59:59' }, [filter('at', 'lt', since)])).toBe(true);
-    expect(matchesFilters({ at: '2025-01-01T00:00:00' }, [filter('at', 'eq', since)])).toBe(true);
-    expect(matchesFilters({ at: 'soon' }, [filter('at', 'ne', since)])).toBe(false);
-  });
-
-  it('reads true/false/1/0 for a boolean filter', () => {
-    expect(matchesFilters({ active: 'true' }, [filter('active', 'eq', true)])).toBe(true);
-    expect(matchesFilters({ active: '1' }, [filter('active', 'eq', true)])).toBe(true);
-    expect(matchesFilters({ active: '0' }, [filter('active', 'ne', true)])).toBe(true);
-    expect(matchesFilters({ active: 'yes' }, [filter('active', 'eq', true)])).toBe(false);
-  });
-
-  it('treats cells named like object properties as unreadable for a boolean filter', () => {
-    for (const cell of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
-      expect(matchesFilters({ active: cell }, [filter('active', 'ne', true)]), cell).toBe(false);
-      expect(matchesFilters({ active: cell }, [filter('active', 'eq', false)]), cell).toBe(false);
-    }
-  });
-
-  it('matches an empty cell only for "not equal"', () => {
-    for (const op of ['eq', 'gt', 'gte', 'lt', 'lte'] as const) {
-      expect(matchesFilters({ status: null }, [filter('status', op, 'paid')]), op).toBe(false);
-    }
-    expect(matchesFilters({ status: null }, [filter('status', 'ne', 'paid')])).toBe(true);
-    expect(matchesFilters({}, [filter('status', 'ne', 5)])).toBe(true);
-  });
-
-  it('needs every filter to match', () => {
-    const row = { amount: '20', status: 'open' };
-    expect(matchesFilters(row, [filter('amount', 'gt', 10), filter('status', 'eq', 'paid')])).toBe(false);
   });
 });
 
